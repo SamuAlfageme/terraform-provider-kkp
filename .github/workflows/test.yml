@@ -1,0 +1,84 @@
+name: Tests
+
+on:
+  pull_request:
+    paths-ignore:
+      - "README.md"
+      - "CHANGELOG.md"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "CHANGELOG.md"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go mod download
+      - run: go build -v .
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  generate:
+    name: Docs are up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+      - run: go generate ./...
+      - name: git diff
+        run: |
+          git diff --compact-summary --exit-code || \
+            (echo; echo "Unexpected difference in directories after code generation. Run 'go generate ./...' and commit."; exit 1)
+      - run: go tool tfplugindocs validate --provider-name kkp
+
+  test:
+    name: Unit tests (${{ matrix.cli }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: [tofu, terraform]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - if: matrix.cli == 'tofu'
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: Run tests
+        run: |
+          if [ "${{ matrix.cli }}" = "tofu" ]; then
+            export TF_ACC_TERRAFORM_PATH="$(which tofu)"
+            export TF_ACC_PROVIDER_HOST=registry.opentofu.org
+            export TF_ACC_PROVIDER_NAMESPACE=samualfageme
+          fi
+          go test -v -cover -timeout 10m ./...

@@ -1,0 +1,27 @@
+version: "2"
+linters:
+  enable:
+    - copyloopvar
+    - durationcheck
+    - errcheck
+    - forcetypeassert
+    - godot
+    - ineffassign
+    - makezero
+    - misspell
+    - nilerr
+    - predeclared
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+  settings:
+    godot:
+      scope: declarations
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [forcetypeassert, unparam]
+formatters:
+  enable:
+    - gofmt
