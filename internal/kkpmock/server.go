@@ -111,7 +111,7 @@ var Datacenters = []map[string]any{
 var Versions = []string{"1.31.9", "1.32.5", "1.33.1"}
 
 // Presets the fake knows (name → provider).
-var Presets = map[string]string{"switch-openstack": "openstack", "team-aws": "aws", "team-azure": "azure", "team-gcp": "gcp", "team-hetzner": "hetzner", "team-do": "digitalocean"}
+var Presets = map[string]string{"shared-openstack": "openstack", "team-aws": "aws", "team-azure": "azure", "team-gcp": "gcp", "team-hetzner": "hetzner", "team-do": "digitalocean"}
 
 // New starts a fake KKP. Close it when done.
 func New() *Server {

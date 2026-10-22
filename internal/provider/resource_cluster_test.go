@@ -176,7 +176,7 @@ resource "kkp_cluster" "c" {
   name              = "edge"
   datacenter        = "os-zurich"
   version           = "1.32.5"
-  credential_preset = "switch-openstack"
+  credential_preset = "shared-openstack"
   openstack         = {}
   # Do not wait: the machine deployment has to retry until KKP accepts it.
   wait_for_ready = false

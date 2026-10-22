@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-22
+
 ### Added
 
 - Provider configuration with bearer token authentication (`token`, `token_file` or `KKP_TOKEN`), a custom CA bundle, retries on rate limiting and gateway errors, and a default `project_id` read from service account tokens.

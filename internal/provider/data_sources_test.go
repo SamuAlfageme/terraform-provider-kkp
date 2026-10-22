@@ -31,7 +31,7 @@ resource "kkp_cluster" "c" {
   name              = "lookup-me"
   datacenter        = data.kkp_datacenter.zurich.name
   version           = data.kkp_kubernetes_versions.os.default_version
-  credential_preset = "switch-openstack"
+  credential_preset = "shared-openstack"
   openstack         = {}
 }
 
