@@ -85,14 +85,33 @@ var Datacenters = []map[string]any{
 		"seed": "europe", "provider": "openstack", "country": "CH", "location": "Lausanne",
 		"openstack": map[string]any{"authURL": "https://keystone.example.ch:5000/v3", "region": "lsn", "images": map[string]any{"ubuntu": "Ubuntu 24.04"}},
 	}},
-	{"metadata": map[string]any{"name": "aws-eu-central-1a"}, "spec": map[string]any{"seed": "europe", "provider": "aws", "country": "DE", "location": "Frankfurt"}},
+	{"metadata": map[string]any{"name": "aws-eu-central-1a"}, "spec": map[string]any{
+		"seed": "europe", "provider": "aws", "country": "DE", "location": "Frankfurt",
+		"aws": map[string]any{"region": "eu-central-1", "images": map[string]any{"ubuntu": "ami-0ubuntu2404", "flatcar": "ami-0flatcar", "amzn2": "ami-0amzn2"}},
+	}},
+	{"metadata": map[string]any{"name": "azure-westeurope"}, "spec": map[string]any{
+		"seed": "europe", "provider": "azure", "country": "NL", "location": "Amsterdam",
+		"azure": map[string]any{"location": "westeurope", "images": map[string]any{"ubuntu": "/subscriptions/0000/images/ubuntu-2404"}},
+	}},
+	{"metadata": map[string]any{"name": "gcp-europe-west3"}, "spec": map[string]any{
+		"seed": "europe", "provider": "gcp", "country": "DE", "location": "Frankfurt",
+		"gcp": map[string]any{"region": "europe-west3", "zoneSuffixes": []any{"a", "b", "c"}},
+	}},
+	{"metadata": map[string]any{"name": "hetzner-nbg1"}, "spec": map[string]any{
+		"seed": "europe", "provider": "hetzner", "country": "DE", "location": "Nuremberg",
+		"hetzner": map[string]any{"datacenter": "nbg1-dc3", "location": "nbg1", "network": "kubermatic"},
+	}},
+	{"metadata": map[string]any{"name": "do-ams3"}, "spec": map[string]any{
+		"seed": "europe", "provider": "digitalocean", "country": "NL", "location": "Amsterdam",
+		"digitalocean": map[string]any{"region": "ams3"},
+	}},
 }
 
 // Versions offered for every provider.
 var Versions = []string{"1.31.9", "1.32.5", "1.33.1"}
 
 // Presets the fake knows (name → provider).
-var Presets = map[string]string{"switch-openstack": "openstack"}
+var Presets = map[string]string{"switch-openstack": "openstack", "team-aws": "aws", "team-azure": "azure", "team-gcp": "gcp", "team-hetzner": "hetzner", "team-do": "digitalocean"}
 
 // New starts a fake KKP. Close it when done.
 func New() *Server {

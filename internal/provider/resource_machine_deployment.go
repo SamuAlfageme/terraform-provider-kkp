@@ -50,7 +50,12 @@ type machineDeploymentModel struct {
 	NodeLabels               types.Map      `tfsdk:"node_labels"`
 	NodeAnnotations          types.Map      `tfsdk:"node_annotations"`
 	Taints                   []taintModel   `tfsdk:"taints"`
-	OpenStack                *openstackNode `tfsdk:"openstack"`
+	OpenStack                types.Object   `tfsdk:"openstack"`
+	AWS                      types.Object   `tfsdk:"aws"`
+	Azure                    types.Object   `tfsdk:"azure"`
+	GCP                      types.Object   `tfsdk:"gcp"`
+	Hetzner                  types.Object   `tfsdk:"hetzner"`
+	DigitalOcean             types.Object   `tfsdk:"digitalocean"`
 	WaitForReady             types.Bool     `tfsdk:"wait_for_ready"`
 	ReadyReplicas            types.Int64    `tfsdk:"ready_replicas"`
 	AvailableReplicas        types.Int64    `tfsdk:"available_replicas"`
@@ -64,17 +69,9 @@ type taintModel struct {
 	Effect types.String `tfsdk:"effect"`
 }
 
-type openstackNode struct {
-	Flavor                    types.String `tfsdk:"flavor"`
-	Image                     types.String `tfsdk:"image"`
-	DiskSize                  types.Int64  `tfsdk:"disk_size"`
-	AvailabilityZone          types.String `tfsdk:"availability_zone"`
-	ServerGroup               types.String `tfsdk:"server_group"`
-	UseFloatingIP             types.Bool   `tfsdk:"use_floating_ip"`
-	ConfigDrive               types.Bool   `tfsdk:"config_drive"`
-	InstanceReadyCheckPeriod  types.String `tfsdk:"instance_ready_check_period"`
-	InstanceReadyCheckTimeout types.String `tfsdk:"instance_ready_check_timeout"`
-	Tags                      types.Map    `tfsdk:"tags"`
+func (m *machineDeploymentModel) clouds() map[string]*types.Object {
+	return map[string]*types.Object{"openstack": &m.OpenStack, "aws": &m.AWS, "azure": &m.Azure, "gcp": &m.GCP,
+		"hetzner": &m.Hetzner, "digitalocean": &m.DigitalOcean}
 }
 
 func (r *machineDeploymentResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -103,9 +100,9 @@ func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.Schem
 			"paused":       defaultBool("Pause rollouts of template changes.", false),
 			"kubelet_version": computedString("Kubelet version. Defaults to the cluster's version at creation; it must not be newer "+
 				"than the control plane, nor more than three minor versions older.", false),
-			"operating_system": schema.StringAttribute{Required: true, MarkdownDescription: "`ubuntu`, `flatcar`, `rhel` or `rockylinux`.",
-				Validators: []validator.String{stringvalidator.OneOf("ubuntu", "flatcar", "rhel", "rockylinux")}},
-			"dist_upgrade_on_boot":        defaultBool("Upgrade all packages on first boot (Ubuntu, RHEL, Rocky Linux).", false),
+			"operating_system": schema.StringAttribute{Required: true, MarkdownDescription: "`ubuntu`, `flatcar`, `rhel`, `rockylinux` or `amzn2` (Amazon Linux 2, AWS only).",
+				Validators: []validator.String{stringvalidator.OneOf("ubuntu", "flatcar", "rhel", "rockylinux", "amzn2")}},
+			"dist_upgrade_on_boot":        defaultBool("Upgrade all packages on first boot (all but Flatcar).", false),
 			"flatcar_disable_auto_update": defaultBool("Disable Flatcar's automatic updates.", false),
 			"operating_system_profile":    str("Operating System Manager profile to use instead of the default for the OS."),
 			"node_labels":                 schema.MapAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Kubernetes labels for the nodes."},
@@ -119,28 +116,15 @@ func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.Schem
 					"effect": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("NoSchedule", "PreferNoSchedule", "NoExecute")}},
 				}},
 			},
-			"openstack": schema.SingleNestedAttribute{
-				Required:            true,
-				MarkdownDescription: "OpenStack machine settings.",
-				Attributes: map[string]schema.Attribute{
-					"flavor":                       schema.StringAttribute{Required: true, MarkdownDescription: "Flavor name."},
-					"image":                        schema.StringAttribute{Required: true, MarkdownDescription: "Image name or ID. The datacenter's default images are listed by `kkp_datacenter`."},
-					"disk_size":                    schema.Int64Attribute{Optional: true, MarkdownDescription: "Root volume size in GB. Unset uses the flavor's local disk.", Validators: []validator.Int64{int64validator.AtLeast(1)}},
-					"availability_zone":            str("Availability zone."),
-					"server_group":                 str("Server group ID, e.g. for anti-affinity."),
-					"use_floating_ip":              defaultBool("Give every node a floating IP.", false),
-					"config_drive":                 defaultBool("Use a config drive instead of the metadata service.", false),
-					"instance_ready_check_period":  str("How often machine-controller checks a new instance, e.g. `5s`."),
-					"instance_ready_check_timeout": str("How long machine-controller waits for a new instance, e.g. `2m`."),
-					"tags":                         schema.MapAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "OpenStack server tags (metadata)."},
-				},
-			},
 			"wait_for_ready":     defaultBool("Wait until all replicas are available after create and update.", true),
 			"ready_replicas":     schema.Int64Attribute{Computed: true},
 			"available_replicas": schema.Int64Attribute{Computed: true},
 			"creation_timestamp": idAttribute(""),
 			"timeouts":           timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
+	}
+	for _, d := range nodeClouds {
+		resp.Schema.Attributes[d.Name] = d.schema("machine settings, matching the cluster's cloud provider")
 	}
 }
 
@@ -150,6 +134,7 @@ func (r *machineDeploymentResource) ValidateConfig(ctx context.Context, req reso
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	exactlyOneCloud(nodeClouds, cloudValues(cfg.clouds()), &resp.Diagnostics)
 	if known(cfg.MinReplicas) != known(cfg.MaxReplicas) && !cfg.MinReplicas.IsUnknown() && !cfg.MaxReplicas.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(path.Root("min_replicas"), "Incomplete autoscaling", "Set both min_replicas and max_replicas, or neither.")
 		return
@@ -183,29 +168,24 @@ func (r *machineDeploymentResource) operatingSystem(m *machineDeploymentModel) c
 		return client.OperatingSystem{RHEL: up}
 	case "rockylinux":
 		return client.OperatingSystem{RockyLinux: up}
+	case "amzn2":
+		return client.OperatingSystem{AmazonLinux: up}
 	default:
 		return client.OperatingSystem{Ubuntu: up}
 	}
 }
 
 func (r *machineDeploymentResource) template(ctx context.Context, m *machineDeploymentModel, diags *diagsT) client.NodeSpec {
-	os := m.OpenStack
-	var disk *int64
-	if known(os.DiskSize) {
-		disk = ptr(os.DiskSize.ValueInt64())
-	}
 	taints := make([]client.Taint, 0, len(m.Taints))
 	for _, t := range m.Taints {
 		taints = append(taints, client.Taint{Key: t.Key.ValueString(), Value: t.Value.ValueString(), Effect: t.Effect.ValueString()})
 	}
+	cloud := client.NodeCloudSpec{}
+	if d, ok := activeCloud(nodeClouds, m.clouds()); ok {
+		cloud[d.Name] = d.body(ctx, *m.clouds()[d.Name])
+	}
 	return client.NodeSpec{
-		Cloud: client.NodeCloudSpec{OpenStack: &client.OpenStackNode{
-			Flavor: os.Flavor.ValueString(), Image: os.Image.ValueString(), DiskSize: disk,
-			AvailabilityZone: os.AvailabilityZone.ValueString(), ServerGroup: os.ServerGroup.ValueString(),
-			UseFloatingIP: os.UseFloatingIP.ValueBool(), ConfigDrive: os.ConfigDrive.ValueBool(),
-			InstanceReadyCheckPeriod: os.InstanceReadyCheckPeriod.ValueString(), InstanceReadyCheckTimeout: os.InstanceReadyCheckTimeout.ValueString(),
-			Tags: goMap(ctx, os.Tags, diags),
-		}},
+		Cloud:           cloud,
 		OperatingSystem: r.operatingSystem(m),
 		Versions:        client.NodeVersions{Kubelet: m.KubeletVersion.ValueString()},
 		Labels:          goMap(ctx, m.NodeLabels, diags),
@@ -240,6 +220,9 @@ func (r *machineDeploymentResource) fill(m *machineDeploymentModel, projectID, c
 	case o.RockyLinux != nil:
 		m.OperatingSystem = types.StringValue("rockylinux")
 		m.DistUpgradeOnBoot = types.BoolValue(o.RockyLinux.DistUpgradeOnBoot)
+	case o.AmazonLinux != nil:
+		m.OperatingSystem = types.StringValue("amzn2")
+		m.DistUpgradeOnBoot = types.BoolValue(o.AmazonLinux.DistUpgradeOnBoot)
 	case o.Ubuntu != nil:
 		m.OperatingSystem = types.StringValue("ubuntu")
 		m.DistUpgradeOnBoot = types.BoolValue(o.Ubuntu.DistUpgradeOnBoot)
@@ -263,21 +246,13 @@ func (r *machineDeploymentResource) fill(m *machineDeploymentModel, projectID, c
 			m.Taints[i] = taintModel{Key: types.StringValue(tt.Key), Value: strOrNull(tt.Value), Effect: types.StringValue(tt.Effect)}
 		}
 	}
-	if m.OpenStack == nil {
-		m.OpenStack = &openstackNode{Tags: types.MapNull(types.StringType)}
-	}
-	if os := t.Cloud.OpenStack; os != nil {
-		n := m.OpenStack
-		n.Flavor, n.Image = types.StringValue(os.Flavor), types.StringValue(os.Image)
-		if os.DiskSize != nil && *os.DiskSize > 0 {
-			n.DiskSize = types.Int64Value(*os.DiskSize)
+	for _, d := range nodeClouds {
+		o := m.clouds()[d.Name]
+		if raw, ok := t.Cloud[d.Name]; ok {
+			*o = d.fromJSON(raw, *o)
 		} else {
-			n.DiskSize = types.Int64Null()
+			*o = d.null()
 		}
-		n.AvailabilityZone, n.ServerGroup = strOrNull(os.AvailabilityZone), strOrNull(os.ServerGroup)
-		n.UseFloatingIP, n.ConfigDrive = types.BoolValue(os.UseFloatingIP), types.BoolValue(os.ConfigDrive)
-		n.InstanceReadyCheckPeriod, n.InstanceReadyCheckTimeout = strOrNull(os.InstanceReadyCheckPeriod), strOrNull(os.InstanceReadyCheckTimeout)
-		n.Tags = mapKeep(os.Tags, n.Tags)
 	}
 	m.ReadyReplicas = types.Int64Value(int64(md.Status.ReadyReplicas))
 	m.AvailableReplicas = types.Int64Value(int64(md.Status.AvailableReplicas))
@@ -397,14 +372,9 @@ func (r *machineDeploymentResource) Update(ctx context.Context, req resource.Upd
 
 	// The template is sent whole, except for maps: a merge patch merges maps, so removed keys are sent as null.
 	tpl := r.template(ctx, &plan, diags)
-	os := tpl.Cloud.OpenStack
-	osPatch := map[string]any{
-		"flavor": os.Flavor, "image": os.Image, "diskSize": nullable(os.DiskSize, os.DiskSize != nil),
-		"availabilityZone": nullable(os.AvailabilityZone, os.AvailabilityZone != ""), "serverGroup": nullable(os.ServerGroup, os.ServerGroup != ""),
-		"useFloatingIP": os.UseFloatingIP, "configDrive": os.ConfigDrive,
-		"instanceReadyCheckPeriod":  nullable(os.InstanceReadyCheckPeriod, os.InstanceReadyCheckPeriod != ""),
-		"instanceReadyCheckTimeout": nullable(os.InstanceReadyCheckTimeout, os.InstanceReadyCheckTimeout != ""),
-		"tags":                      mapPatch(goMap(ctx, state.OpenStack.Tags, diags), os.Tags),
+	cloud := map[string]any{}
+	if d, ok := activeCloud(nodeClouds, plan.clouds()); ok {
+		cloud[d.Name] = d.patch(ctx, *plan.clouds()[d.Name], *state.clouds()[d.Name], true)
 	}
 	taints := any(nil)
 	if len(tpl.Taints) > 0 {
@@ -416,7 +386,7 @@ func (r *machineDeploymentResource) Update(ctx context.Context, req resource.Upd
 		"maxReplicas": nullable(plan.MaxReplicas.ValueInt64(), known(plan.MaxReplicas)),
 		"paused":      plan.Paused.ValueBool(),
 		"template": map[string]any{
-			"cloud":           map[string]any{"openstack": osPatch},
+			"cloud":           cloud,
 			"operatingSystem": tpl.OperatingSystem,
 			"versions":        tpl.Versions,
 			"labels":          mapPatch(goMap(ctx, state.NodeLabels, diags), tpl.Labels),

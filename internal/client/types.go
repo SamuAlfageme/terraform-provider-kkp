@@ -1,5 +1,7 @@
 package client
 
+import "encoding/json"
+
 // API types, trimmed to the fields the provider reads or writes. Field names follow KKP's JSON.
 
 type ObjectMeta struct {
@@ -86,6 +88,29 @@ type DatacenterSpec struct {
 	Country   string               `json:"country,omitempty"`
 	Location  string               `json:"location,omitempty"`
 	OpenStack *DatacenterOpenStack `json:"openstack,omitempty"`
+	AWS       *DatacenterRegion    `json:"aws,omitempty"`
+	Azure     *DatacenterRegion    `json:"azure,omitempty"`
+	GCP       *DatacenterGCP       `json:"gcp,omitempty"`
+	Hetzner   *DatacenterHetzner   `json:"hetzner,omitempty"`
+	DO        *DatacenterRegion    `json:"digitalocean,omitempty"`
+}
+
+// DatacenterRegion covers AWS (region, images), Azure (location, images) and DigitalOcean (region).
+type DatacenterRegion struct {
+	Region   string            `json:"region,omitempty"`
+	Location string            `json:"location,omitempty"`
+	Images   map[string]string `json:"images,omitempty"`
+}
+
+type DatacenterGCP struct {
+	Region       string   `json:"region,omitempty"`
+	ZoneSuffixes []string `json:"zoneSuffixes,omitempty"`
+}
+
+type DatacenterHetzner struct {
+	Datacenter string `json:"datacenter,omitempty"`
+	Location   string `json:"location,omitempty"`
+	Network    string `json:"network,omitempty"`
 }
 
 type DatacenterOpenStack struct {
@@ -211,31 +236,50 @@ type ClusterNetwork struct {
 	DNSDomain                string         `json:"dnsDomain,omitempty"`
 }
 
+// CloudSpec is spec.cloud: the datacenter plus one object keyed by the cloud provider (e.g. "openstack").
+// The provider objects are kept as plain JSON maps; the provider package knows their fields. KKP never returns
+// credential fields: it moves them into a secret on the seed and answers with credentialsReference instead.
 type CloudSpec struct {
-	DatacenterName string          `json:"dc"`
-	ProviderName   string          `json:"providerName,omitempty"`
-	OpenStack      *OpenStackCloud `json:"openstack,omitempty"`
+	DatacenterName string
+	ProviderName   string
+	Providers      map[string]map[string]any
 }
 
-// OpenStackCloud is spec.cloud.openstack. KKP never returns the credential fields: it moves them into a
-// secret on the seed and answers with credentialsReference instead.
-type OpenStackCloud struct {
-	Username                    string            `json:"username,omitempty"`
-	Password                    string            `json:"password,omitempty"`
-	Domain                      string            `json:"domain,omitempty"`
-	Project                     string            `json:"project,omitempty"`
-	ProjectID                   string            `json:"projectID,omitempty"`
-	ApplicationCredentialID     string            `json:"applicationCredentialID,omitempty"`
-	ApplicationCredentialSecret string            `json:"applicationCredentialSecret,omitempty"`
-	CredentialsReference        map[string]string `json:"credentialsReference,omitempty"`
-	FloatingIPPool              string            `json:"floatingIPPool,omitempty"`
-	Network                     string            `json:"network,omitempty"`
-	SubnetID                    string            `json:"subnetID,omitempty"`
-	RouterID                    string            `json:"routerID,omitempty"`
-	SecurityGroups              string            `json:"securityGroups,omitempty"`
-	NodePortsAllowedIPRanges    *NetworkRanges    `json:"nodePortsAllowedIPRanges,omitempty"`
-	EnableIngressHostname       *bool             `json:"enableIngressHostname,omitempty"`
-	IngressHostnameSuffix       string            `json:"ingressHostnameSuffix,omitempty"`
+func (c CloudSpec) MarshalJSON() ([]byte, error) {
+	out := map[string]any{"dc": c.DatacenterName}
+	if c.ProviderName != "" {
+		out["providerName"] = c.ProviderName
+	}
+	for k, v := range c.Providers {
+		out[k] = v
+	}
+	return json.Marshal(out)
+}
+
+func (c *CloudSpec) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*c = CloudSpec{Providers: map[string]map[string]any{}}
+	for k, v := range raw {
+		var err error
+		switch k {
+		case "dc":
+			err = json.Unmarshal(v, &c.DatacenterName)
+		case "providerName":
+			err = json.Unmarshal(v, &c.ProviderName)
+		default:
+			var m map[string]any
+			if json.Unmarshal(v, &m) == nil && m != nil {
+				c.Providers[k] = m
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type CreateClusterBody struct {
@@ -283,29 +327,16 @@ type Taint struct {
 	Effect string `json:"effect"`
 }
 
-type NodeCloudSpec struct {
-	OpenStack *OpenStackNode `json:"openstack,omitempty"`
-}
-
-type OpenStackNode struct {
-	Flavor                    string            `json:"flavor"`
-	Image                     string            `json:"image"`
-	DiskSize                  *int64            `json:"diskSize,omitempty"`
-	AvailabilityZone          string            `json:"availabilityZone,omitempty"`
-	ServerGroup               string            `json:"serverGroup,omitempty"`
-	UseFloatingIP             bool              `json:"useFloatingIP"`
-	ConfigDrive               bool              `json:"configDrive,omitempty"`
-	InstanceReadyCheckPeriod  string            `json:"instanceReadyCheckPeriod,omitempty"`
-	InstanceReadyCheckTimeout string            `json:"instanceReadyCheckTimeout,omitempty"`
-	Tags                      map[string]string `json:"tags,omitempty"`
-}
+// NodeCloudSpec is spec.template.cloud: one object keyed by the cloud provider, as plain JSON.
+type NodeCloudSpec map[string]map[string]any
 
 // OperatingSystem holds exactly one OS; the API rejects more than one.
 type OperatingSystem struct {
-	Ubuntu     *DistUpgrade `json:"ubuntu,omitempty"`
-	Flatcar    *Flatcar     `json:"flatcar,omitempty"`
-	RHEL       *DistUpgrade `json:"rhel,omitempty"`
-	RockyLinux *DistUpgrade `json:"rockylinux,omitempty"`
+	Ubuntu      *DistUpgrade `json:"ubuntu,omitempty"`
+	Flatcar     *Flatcar     `json:"flatcar,omitempty"`
+	RHEL        *DistUpgrade `json:"rhel,omitempty"`
+	RockyLinux  *DistUpgrade `json:"rockylinux,omitempty"`
+	AmazonLinux *DistUpgrade `json:"amzn2,omitempty"`
 }
 
 type DistUpgrade struct {

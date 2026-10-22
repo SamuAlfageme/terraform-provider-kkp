@@ -1,6 +1,8 @@
 package kkpmock
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -15,8 +17,6 @@ type LastClusterDelete struct {
 	DeleteLoadBalancers string
 }
 
-var credentialFields = []string{"username", "password", "domain", "project", "projectID", "applicationCredentialID", "applicationCredentialSecret", "token"}
-
 // Cluster fields KKP's PATCH handler takes from the patched object (handler/common/cluster.go PatchEndpoint).
 var patchableSpec = []string{"cloud", "machineNetworks", "version", "oidc", "auditLogging", "admissionPlugins", "updateWindow",
 	"opaIntegration", "podNodeSelectorAdmissionPluginConfig", "eventRateLimitConfig", "serviceAccount", "mla", "containerRuntime",
@@ -25,49 +25,45 @@ var patchableSpec = []string{"cloud", "machineNetworks", "version", "oidc", "aud
 
 func (s *Server) ready(c *cluster) bool { return c.polls >= s.HealthPolls }
 
-// observe is one poll of a cluster: it advances provisioning and, once healthy, fills in the OpenStack
+// provider is the cluster's cloud provider and its spec.cloud.<provider> object.
+func provider(c *cluster) (string, map[string]any) {
+	name := str(c.Obj, "spec", "cloud", "providerName")
+	return name, obj(c.Obj, "spec", "cloud", name)
+}
+
+// observe is one poll of a cluster: it advances provisioning and, once healthy, fills in the cloud
 // resources KKP's cloud controller creates when none were given.
 func (s *Server) observe(c *cluster) {
 	c.polls++
 	if !s.ready(c) {
 		return
 	}
-	os := obj(c.Obj, "spec", "cloud", "openstack")
-	if os == nil {
+	name, spec := provider(c)
+	if spec == nil || clouds[name].Reconciled == nil {
 		return
 	}
-	id := str(c.Obj, "id")
-	for k, v := range map[string]string{"network": "kubernetes-" + id, "subnetID": "subnet-" + id, "routerID": "router-" + id,
-		"securityGroups": "kubernetes-" + id, "floatingIPPool": "public"} {
-		if os[k] == nil || os[k] == "" {
-			os[k] = v
+	for k, v := range clouds[name].Reconciled(str(c.Obj, "id"), findDC(str(c.Obj, "spec", "cloud", "dc"))) {
+		if (spec[k] == nil || spec[k] == "") && v != "" {
+			spec[k] = v
 		}
 	}
 }
 
 func stripCredentials(c *cluster) {
-	os := obj(c.Obj, "spec", "cloud", "openstack")
-	if os == nil {
+	name, spec := provider(c)
+	if spec == nil {
 		return
 	}
 	had := false
-	for _, f := range credentialFields {
-		if v, ok := os[f]; ok && v != "" && v != false {
+	for _, f := range clouds[name].Secret {
+		if v, ok := spec[f]; ok && v != "" && v != false {
 			had = true
 		}
-		delete(os, f)
+		delete(spec, f)
 	}
-	if had || os["credentialsReference"] == nil {
-		os["credentialsReference"] = map[string]any{"name": "credential-openstack-" + str(c.Obj, "id"), "namespace": "kubermatic"}
+	if had || spec["credentialsReference"] == nil {
+		spec["credentialsReference"] = map[string]any{"name": "credential-" + name + "-" + str(c.Obj, "id"), "namespace": "kubermatic"}
 	}
-}
-
-func validOpenStackCreds(os map[string]any) bool {
-	has := func(k string) bool { v, _ := os[k].(string); return v != "" }
-	if has("applicationCredentialID") && has("applicationCredentialSecret") {
-		return true
-	}
-	return has("username") && has("password") && has("domain") && (has("project") || has("projectID"))
 }
 
 // mdView is one poll of a machine deployment: machines come up one poll after a create or change.
@@ -90,6 +86,13 @@ func checkKubelet(kubelet, controlPlane string) *apiErr {
 		return fail(http.StatusBadRequest, "kubelet version %s is not compatible with control plane version %s: maximum 3 minor versions skew", kubelet, controlPlane)
 	}
 	return nil
+}
+
+func osName(tpl map[string]any) string {
+	for k := range obj(tpl, "operatingSystem") {
+		return k
+	}
+	return ""
 }
 
 func osCount(tpl map[string]any) int {
@@ -140,21 +143,37 @@ func registerClusterRoutes() {
 		if !slices.Contains(Versions, version) {
 			return 0, nil, fail(http.StatusBadRequest, "invalid cluster: version %q is not supported, supported versions: %s", version, strings.Join(Versions, ", "))
 		}
-		os := obj(in, "spec", "cloud", "openstack")
-		if str(dc, "spec", "provider") != "openstack" || os == nil {
-			return 0, nil, fail(http.StatusBadRequest, "invalid cluster: the mock only supports OpenStack datacenters with spec.cloud.openstack set")
+		prov := str(dc, "spec", "provider")
+		cloud, known := clouds[prov]
+		cs := obj(in, "spec", "cloud", prov)
+		if !known {
+			return 0, nil, fail(http.StatusBadRequest, "invalid cluster: the mock does not support %s datacenters", prov)
+		}
+		if cs == nil {
+			return 0, nil, fail(http.StatusBadRequest, "invalid cluster: invalid cloud spec: datacenter %q is a %s datacenter, but spec.cloud.%s is not set", dcName, prov, prov)
+		}
+		for k := range clouds {
+			if k != prov && obj(in, "spec", "cloud", k) != nil {
+				return 0, nil, fail(http.StatusBadRequest, "invalid cluster: invalid cloud spec: only one cloud provider can be set, got %s and %s", prov, k)
+			}
 		}
 		if preset := str(in, "credential"); preset != "" {
-			if Presets[preset] != "openstack" {
+			if Presets[preset] != prov {
 				return 0, nil, fail(http.StatusBadRequest, "can not get preset %s for user admin@example.com: presets.kubermatic.k8c.io %q not found", preset, preset)
 			}
-		} else if !validOpenStackCreds(os) {
-			return 0, nil, fail(http.StatusBadRequest, "invalid credentials: either username, password, domain and project (or projectID), or applicationCredentialID and applicationCredentialSecret are required")
+		} else if !cloud.validCredentials(cs) {
+			return 0, nil, fail(http.StatusBadRequest, "invalid credentials: %s required", cloud.credentialHelp())
+		} else if prov == "gcp" {
+			// KKP base64-decodes the service account key and parses it as JSON.
+			raw, err := base64.StdEncoding.DecodeString(str(cs, "serviceAccount"))
+			if err != nil || !json.Valid(raw) {
+				return 0, nil, fail(http.StatusBadRequest, "invalid credentials: serviceAccount must be a base64 encoded JSON key")
+			}
 		}
 
 		id := randID(10)
 		spec := clone(obj(in, "spec"))
-		obj(spec, "cloud")["providerName"] = "openstack"
+		obj(spec, "cloud")["providerName"] = prov
 		defaults := map[string]any{
 			"containerRuntime": "containerd", "exposeStrategy": "NodePort", "enableUserSSHKeyAgent": true,
 			"kubernetesDashboard": map[string]any{"enabled": true}, "auditLogging": map[string]any{"enabled": false},
@@ -416,14 +435,25 @@ users:
 		}
 		spec := clone(obj(b, "spec"))
 		tpl := obj(spec, "template")
-		if tpl == nil || obj(tpl, "cloud", "openstack") == nil {
-			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: openstack node spec is required")
+		prov, clusterCloud := provider(c)
+		node := obj(tpl, "cloud", prov)
+		if tpl == nil || node == nil || len(obj(tpl, "cloud")) != 1 {
+			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: the node spec must be for the cluster's cloud provider, %s", prov)
 		}
-		if str(tpl, "cloud", "openstack", "flavor") == "" || str(tpl, "cloud", "openstack", "image") == "" {
-			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: flavor and image are required")
+		for _, k := range clouds[prov].NodeRequired {
+			if node[k] == nil || node[k] == "" || node[k] == float64(0) {
+				return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: %s.%s is required", prov, k)
+			}
 		}
 		if osCount(tpl) != 1 {
 			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: exactly one operating system is required")
+		}
+		if f := clouds[prov].NodeDefaults; f != nil {
+			for k, v := range f(findDC(str(c.Obj, "spec", "cloud", "dc")), clusterCloud, osName(tpl)) {
+				if (node[k] == nil || node[k] == "") && v != "" {
+					node[k] = v
+				}
+			}
 		}
 		cp := str(c.Obj, "spec", "version")
 		if obj(tpl, "versions") == nil {

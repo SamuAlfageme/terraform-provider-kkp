@@ -11,7 +11,7 @@ The KKP provider manages [Kubermatic Kubernetes Platform](https://www.kubermatic
 Use it to declare:
 
 * **Projects** ([`kkp_project`](resources/project.md)), their **members** ([`kkp_project_member`](resources/project_member.md)) and **SSH keys** ([`kkp_ssh_key`](resources/ssh_key.md)).
-* **Clusters** ([`kkp_cluster`](resources/cluster.md)) and their worker nodes, **machine deployments** ([`kkp_machine_deployment`](resources/machine_deployment.md)). OpenStack is the supported cloud provider for now.
+* **Clusters** ([`kkp_cluster`](resources/cluster.md)) and their worker nodes, **machine deployments** ([`kkp_machine_deployment`](resources/machine_deployment.md)). Supported cloud providers: OpenStack, AWS, Azure, Google Cloud, Hetzner and DigitalOcean.
 * **Service accounts** ([`kkp_service_account`](resources/service_account.md)) and their **API tokens** ([`kkp_service_account_token`](resources/service_account_token.md)).
 
 Data sources look up datacenters, Kubernetes versions, projects and clusters, and fetch a cluster's admin kubeconfig for the `kubernetes` and `helm` providers.

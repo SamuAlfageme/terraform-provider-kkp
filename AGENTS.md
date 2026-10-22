@@ -54,7 +54,12 @@ These are mirrored in `internal/kkpmock`; keep the fake in sync when you add an 
 - The cluster SSH key detach route is `/api/v2/projects/{p}/clusters/{c}/sshkeys/{key}`; swagger.json lists it without `/v2`.
 - `GET /api/v2/projects/{p}/clusters` only fills `machineDeploymentCount` with `?show_dm_count=true`.
 
+- Every cloud's credentials are stripped from responses the same way. GCP's `serviceAccount` is the key JSON, base64 encoded.
+- A machine deployment's cloud must be the cluster's, and the cluster's cloud block must be the datacenter's provider.
+
 ## Conventions
+
+- **Cloud providers** are tables in `internal/provider/cloud.go` (`clusterClouds`, `nodeClouds`): one `cloudField` per JSON field, from which schema, create body, merge patch, state and credential validation are derived. Adding a cloud means adding its fields there, a `tfsdk` field in both models' `clouds()`, its datacenter fields in `client.DatacenterSpec`, its behaviour in `internal/kkpmock/clouds.go`, and a `cloudCases` entry in the tests. Fields KKP fills in are `Computed`; fields KKP cannot change on a running cluster are `Replace`.
 
 - **Client first.** Add API calls to `internal/client/endpoints.go` as typed methods.
 - **Resources:** `id` is the KKP ID. Project-scoped resources have an Optional+Computed `project_id` (`RequiresReplace`) that defaults to the provider's project, and import as `<project_id>/<id>` (`<project_id>/<cluster_id>/<id>` for machine deployments). Attributes KKP defaults are Optional+Computed with `UseStateForUnknown`. Status values are Computed only. A 404 on read means `resp.State.RemoveResource`. Every attribute needs a `MarkdownDescription`.
@@ -66,7 +71,7 @@ These are mirrored in `internal/kkpmock`; keep the fake in sync when you add an 
 
 ## Roadmap
 
-More cloud providers for clusters and machine deployments (the API shapes are in swagger.json under `CloudSpec` and `NodeCloudSpec`), cluster addons and applications, and group project bindings.
+vSphere and KubeVirt clusters and machine deployments (the API shapes are in swagger.json under `CloudSpec` and `NodeCloudSpec`), cluster addons and applications, and group project bindings.
 
 ## Releasing
 

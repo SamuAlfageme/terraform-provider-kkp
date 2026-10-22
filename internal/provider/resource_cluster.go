@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"time"
 
@@ -33,59 +34,68 @@ func newClusterResource() resource.Resource { return &clusterResource{} }
 type clusterResource struct{ base }
 
 type clusterModel struct {
-	ID                       types.String    `tfsdk:"id"`
-	ProjectID                types.String    `tfsdk:"project_id"`
-	Name                     types.String    `tfsdk:"name"`
-	Datacenter               types.String    `tfsdk:"datacenter"`
-	Version                  types.String    `tfsdk:"version"`
-	CredentialPreset         types.String    `tfsdk:"credential_preset"`
-	Labels                   types.Map       `tfsdk:"labels"`
-	ExposeStrategy           types.String    `tfsdk:"expose_strategy"`
-	CNIType                  types.String    `tfsdk:"cni_type"`
-	CNIVersion               types.String    `tfsdk:"cni_version"`
-	PodsCIDR                 types.String    `tfsdk:"pods_cidr"`
-	ServicesCIDR             types.String    `tfsdk:"services_cidr"`
-	ProxyMode                types.String    `tfsdk:"proxy_mode"`
-	NodeLocalDNSCache        types.Bool      `tfsdk:"node_local_dns_cache"`
-	Konnectivity             types.Bool      `tfsdk:"konnectivity"`
-	APIServerAllowedIPRanges types.List      `tfsdk:"api_server_allowed_ip_ranges"`
-	AuditLogging             types.Bool      `tfsdk:"audit_logging"`
-	AuditPolicyPreset        types.String    `tfsdk:"audit_policy_preset"`
-	AdmissionPlugins         types.Set       `tfsdk:"admission_plugins"`
-	OPAIntegration           types.Bool      `tfsdk:"opa_integration"`
-	Kyverno                  types.Bool      `tfsdk:"kyverno"`
-	KubernetesDashboard      types.Bool      `tfsdk:"kubernetes_dashboard"`
-	MLALogging               types.Bool      `tfsdk:"mla_logging"`
-	MLAMonitoring            types.Bool      `tfsdk:"mla_monitoring"`
-	UserSSHKeyAgent          types.Bool      `tfsdk:"user_ssh_key_agent"`
-	SSHKeyIDs                types.Set       `tfsdk:"ssh_key_ids"`
-	OpenStack                *openstackCloud `tfsdk:"openstack"`
-	DeleteVolumes            types.Bool      `tfsdk:"delete_volumes_on_destroy"`
-	DeleteLoadBalancers      types.Bool      `tfsdk:"delete_load_balancers_on_destroy"`
-	WaitForReady             types.Bool      `tfsdk:"wait_for_ready"`
-	URL                      types.String    `tfsdk:"url"`
-	CreationTimestamp        types.String    `tfsdk:"creation_timestamp"`
-	Timeouts                 timeouts.Value  `tfsdk:"timeouts"`
+	ID                       types.String   `tfsdk:"id"`
+	ProjectID                types.String   `tfsdk:"project_id"`
+	Name                     types.String   `tfsdk:"name"`
+	Datacenter               types.String   `tfsdk:"datacenter"`
+	Version                  types.String   `tfsdk:"version"`
+	CredentialPreset         types.String   `tfsdk:"credential_preset"`
+	Labels                   types.Map      `tfsdk:"labels"`
+	ExposeStrategy           types.String   `tfsdk:"expose_strategy"`
+	CNIType                  types.String   `tfsdk:"cni_type"`
+	CNIVersion               types.String   `tfsdk:"cni_version"`
+	PodsCIDR                 types.String   `tfsdk:"pods_cidr"`
+	ServicesCIDR             types.String   `tfsdk:"services_cidr"`
+	ProxyMode                types.String   `tfsdk:"proxy_mode"`
+	NodeLocalDNSCache        types.Bool     `tfsdk:"node_local_dns_cache"`
+	Konnectivity             types.Bool     `tfsdk:"konnectivity"`
+	APIServerAllowedIPRanges types.List     `tfsdk:"api_server_allowed_ip_ranges"`
+	AuditLogging             types.Bool     `tfsdk:"audit_logging"`
+	AuditPolicyPreset        types.String   `tfsdk:"audit_policy_preset"`
+	AdmissionPlugins         types.Set      `tfsdk:"admission_plugins"`
+	OPAIntegration           types.Bool     `tfsdk:"opa_integration"`
+	Kyverno                  types.Bool     `tfsdk:"kyverno"`
+	KubernetesDashboard      types.Bool     `tfsdk:"kubernetes_dashboard"`
+	MLALogging               types.Bool     `tfsdk:"mla_logging"`
+	MLAMonitoring            types.Bool     `tfsdk:"mla_monitoring"`
+	UserSSHKeyAgent          types.Bool     `tfsdk:"user_ssh_key_agent"`
+	SSHKeyIDs                types.Set      `tfsdk:"ssh_key_ids"`
+	OpenStack                types.Object   `tfsdk:"openstack"`
+	AWS                      types.Object   `tfsdk:"aws"`
+	Azure                    types.Object   `tfsdk:"azure"`
+	GCP                      types.Object   `tfsdk:"gcp"`
+	Hetzner                  types.Object   `tfsdk:"hetzner"`
+	DigitalOcean             types.Object   `tfsdk:"digitalocean"`
+	DeleteVolumes            types.Bool     `tfsdk:"delete_volumes_on_destroy"`
+	DeleteLoadBalancers      types.Bool     `tfsdk:"delete_load_balancers_on_destroy"`
+	WaitForReady             types.Bool     `tfsdk:"wait_for_ready"`
+	URL                      types.String   `tfsdk:"url"`
+	CreationTimestamp        types.String   `tfsdk:"creation_timestamp"`
+	Timeouts                 timeouts.Value `tfsdk:"timeouts"`
 }
 
-type openstackCloud struct {
-	Username                    types.String `tfsdk:"username"`
-	Password                    types.String `tfsdk:"password"`
-	Domain                      types.String `tfsdk:"domain"`
-	Project                     types.String `tfsdk:"project"`
-	ProjectID                   types.String `tfsdk:"project_id"`
-	ApplicationCredentialID     types.String `tfsdk:"application_credential_id"`
-	ApplicationCredentialSecret types.String `tfsdk:"application_credential_secret"`
-	FloatingIPPool              types.String `tfsdk:"floating_ip_pool"`
-	Network                     types.String `tfsdk:"network"`
-	SubnetID                    types.String `tfsdk:"subnet_id"`
-	RouterID                    types.String `tfsdk:"router_id"`
-	SecurityGroups              types.String `tfsdk:"security_groups"`
-	NodePortsAllowedIPRanges    types.List   `tfsdk:"node_ports_allowed_ip_ranges"`
+// clouds maps the cloud block names to the model's fields.
+func (m *clusterModel) clouds() map[string]*types.Object {
+	return map[string]*types.Object{"openstack": &m.OpenStack, "aws": &m.AWS, "azure": &m.Azure, "gcp": &m.GCP,
+		"hetzner": &m.Hetzner, "digitalocean": &m.DigitalOcean}
 }
 
-func (o *openstackCloud) credentials() []types.String {
-	return []types.String{o.Username, o.Password, o.Domain, o.Project, o.ProjectID, o.ApplicationCredentialID, o.ApplicationCredentialSecret}
+func cloudValues(blocks map[string]*types.Object) map[string]types.Object {
+	out := map[string]types.Object{}
+	for k, v := range blocks {
+		out[k] = *v
+	}
+	return out
+}
+
+// activeCloud is the cloud block that is set, if any.
+func activeCloud(defs []cloudDef, blocks map[string]*types.Object) (cloudDef, bool) {
+	for _, d := range defs {
+		if o := *blocks[d.Name]; !o.IsNull() && !o.IsUnknown() {
+			return d, true
+		}
+	}
+	return cloudDef{}, false
 }
 
 func (r *clusterResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -113,15 +123,14 @@ func defaultBool(desc string, def bool) schema.BoolAttribute {
 	return schema.BoolAttribute{Optional: true, Computed: true, MarkdownDescription: desc, Default: booldefault.StaticBool(def)}
 }
 
-func credential(desc string, sensitive bool) schema.StringAttribute {
-	return schema.StringAttribute{Optional: true, Sensitive: sensitive, MarkdownDescription: desc +
-		" KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected."}
-}
-
 func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	attrs := map[string]schema.Attribute{}
+	for _, d := range clusterClouds {
+		attrs[d.Name] = d.schema("cluster settings")
+	}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "A KKP user cluster. OpenStack is the supported cloud provider for now. Worker nodes are managed " +
-			"separately with `kkp_machine_deployment`.\n\nKKP only accepts in-place changes to some fields (name, labels, version, " +
+		MarkdownDescription: "A KKP user cluster on OpenStack, AWS, Azure, Google Cloud, Hetzner or DigitalOcean: set the block of the " +
+			"datacenter's cloud provider. Worker nodes are managed separately with `kkp_machine_deployment`.\n\nKKP only accepts in-place changes to some fields (name, labels, version, " +
 			"expose strategy, CNI version, proxy mode, Konnectivity, allowed IP ranges, audit logging, admission plugins, " +
 			"OPA, Kyverno, MLA, the Kubernetes dashboard and cloud credentials); the provider replaces the cluster when " +
 			"anything else changes. Upgrade the control plane one minor version at a time, and keep machine deployments " +
@@ -132,7 +141,7 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			"name":              schema.StringAttribute{Required: true, MarkdownDescription: "Display name."},
 			"datacenter":        replaceString(true, "Datacenter name, see the `kkp_datacenters` data source."),
 			"version":           schema.StringAttribute{Required: true, MarkdownDescription: "Kubernetes version of the control plane, e.g. `1.32.5`. See `kkp_kubernetes_versions`."},
-			"credential_preset": replaceString(false, "Name of a KKP preset to take the cloud credentials from, instead of setting them in `openstack`."),
+			"credential_preset": replaceString(false, "Name of a KKP preset to take the cloud credentials from, instead of setting them in the cloud block."),
 			"labels": schema.MapAttribute{Optional: true, ElementType: types.StringType,
 				MarkdownDescription: "Labels. Labels KKP manages itself (`project-id`, `is-credential-preset`, `worker-name`) are ignored."},
 			"expose_strategy": computedString("How the API server is exposed: `NodePort`, `LoadBalancer` or `Tunneling`. Defaults to the seed's setting.", false,
@@ -158,26 +167,6 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			"user_ssh_key_agent":   computedBool("Run KKP's user SSH key agent, which syncs `ssh_key_ids` to the nodes. Cannot be changed after creation.", true),
 			"ssh_key_ids": schema.SetAttribute{Optional: true, ElementType: types.StringType,
 				MarkdownDescription: "IDs of project SSH keys (`kkp_ssh_key.id`) to put on the nodes."},
-			"openstack": schema.SingleNestedAttribute{
-				Required:            true,
-				MarkdownDescription: "OpenStack settings. Set either `credential_preset`, user credentials (`username`, `password`, `domain` and `project` or `project_id`), or an application credential.",
-				Attributes: map[string]schema.Attribute{
-					"username":                      credential("OpenStack user name.", false),
-					"password":                      credential("OpenStack password.", true),
-					"domain":                        credential("OpenStack domain.", false),
-					"project":                       credential("OpenStack project (tenant) name.", false),
-					"project_id":                    credential("OpenStack project (tenant) ID.", false),
-					"application_credential_id":     credential("Application credential ID.", false),
-					"application_credential_secret": credential("Application credential secret.", true),
-					"floating_ip_pool":              computedString("External network for floating IPs. KKP picks one when unset.", true),
-					"network":                       computedString("Existing network for the nodes. KKP creates one when unset.", true),
-					"subnet_id":                     computedString("Existing subnet for the nodes. KKP creates one when unset.", true),
-					"router_id":                     computedString("Existing router. KKP creates one when unset.", true),
-					"security_groups":               computedString("Existing security group for the nodes. KKP creates one when unset.", true),
-					"node_ports_allowed_ip_ranges": schema.ListAttribute{Optional: true, ElementType: types.StringType,
-						MarkdownDescription: "CIDRs allowed to reach NodePort services."},
-				},
-			},
 			"delete_volumes_on_destroy":        defaultBool("Delete the cluster's persistent volumes when the cluster is destroyed.", false),
 			"delete_load_balancers_on_destroy": defaultBool("Delete the cluster's load balancers when the cluster is destroyed.", false),
 			"wait_for_ready":                   defaultBool("Wait until the control plane is healthy after create and upgrade.", true),
@@ -186,37 +175,20 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			"timeouts":                         timeouts.Attributes(ctx, timeouts.Opts{Create: true, Update: true, Delete: true}),
 		},
 	}
+	maps.Copy(resp.Schema.Attributes, attrs)
 }
 
 func (r *clusterResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var cfg clusterModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
-	if resp.Diagnostics.HasError() || cfg.OpenStack == nil {
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	os := cfg.OpenStack
-	for _, v := range append(os.credentials(), cfg.CredentialPreset) {
-		if v.IsUnknown() {
-			return
-		}
+	d, ok := exactlyOneCloud(clusterClouds, cloudValues(cfg.clouds()), &resp.Diagnostics)
+	if !ok || cfg.CredentialPreset.IsUnknown() {
+		return
 	}
-	set := func(v types.String) bool { return v.ValueString() != "" }
-	user := set(os.Username) || set(os.Password)
-	app := set(os.ApplicationCredentialID) || set(os.ApplicationCredentialSecret)
-	preset := set(cfg.CredentialPreset)
-	p := path.Root("openstack")
-	switch {
-	case preset && (user || app):
-		resp.Diagnostics.AddAttributeError(path.Root("credential_preset"), "Conflicting credentials", "Set either credential_preset or credentials in openstack, not both.")
-	case user && app:
-		resp.Diagnostics.AddAttributeError(p, "Conflicting credentials", "Set either user credentials or an application credential, not both.")
-	case user && (!set(os.Username) || !set(os.Password) || !set(os.Domain) || (!set(os.Project) && !set(os.ProjectID))):
-		resp.Diagnostics.AddAttributeError(p, "Incomplete credentials", "User credentials need username, password, domain and project or project_id.")
-	case app && (!set(os.ApplicationCredentialID) || !set(os.ApplicationCredentialSecret)):
-		resp.Diagnostics.AddAttributeError(p, "Incomplete credentials", "An application credential needs application_credential_id and application_credential_secret.")
-	case !preset && !user && !app:
-		resp.Diagnostics.AddAttributeError(p, "Missing credentials", "Set credential_preset, user credentials or an application credential.")
-	}
+	d.validateCredentials(*cfg.clouds()[d.Name], cfg.CredentialPreset.ValueString() != "", &resp.Diagnostics)
 }
 
 func boolOrNil(v types.Bool) *bool {
@@ -249,18 +221,13 @@ func ranges(ctx context.Context, l types.List, diags *diagsT) *client.NetworkRan
 }
 
 func (r *clusterResource) build(ctx context.Context, m *clusterModel, diags *diagsT) client.CreateClusterBody {
-	os := m.OpenStack
-	cloud := &client.OpenStackCloud{
-		Username: os.Username.ValueString(), Password: os.Password.ValueString(), Domain: os.Domain.ValueString(),
-		Project: os.Project.ValueString(), ProjectID: os.ProjectID.ValueString(),
-		ApplicationCredentialID: os.ApplicationCredentialID.ValueString(), ApplicationCredentialSecret: os.ApplicationCredentialSecret.ValueString(),
-		FloatingIPPool: os.FloatingIPPool.ValueString(), Network: os.Network.ValueString(), SubnetID: os.SubnetID.ValueString(),
-		RouterID: os.RouterID.ValueString(), SecurityGroups: os.SecurityGroups.ValueString(),
-		NodePortsAllowedIPRanges: ranges(ctx, os.NodePortsAllowedIPRanges, diags),
+	cloud := client.CloudSpec{DatacenterName: m.Datacenter.ValueString(), Providers: map[string]map[string]any{}}
+	if d, ok := activeCloud(clusterClouds, m.clouds()); ok {
+		cloud.Providers[d.Name] = d.body(ctx, *m.clouds()[d.Name])
 	}
 	spec := client.ClusterSpec{
 		Version:                  m.Version.ValueString(),
-		Cloud:                    client.CloudSpec{DatacenterName: m.Datacenter.ValueString(), OpenStack: cloud},
+		Cloud:                    cloud,
 		ExposeStrategy:           m.ExposeStrategy.ValueString(),
 		APIServerAllowedIPRanges: ranges(ctx, m.APIServerAllowedIPRanges, diags),
 		AdmissionPlugins:         goStrings(ctx, m.AdmissionPlugins, diags),
@@ -349,16 +316,13 @@ func (r *clusterResource) fill(m *clusterModel, projectID string, c *client.Clus
 	m.UserSSHKeyAgent = types.BoolValue(s.EnableUserSSHKeyAgent != nil && *s.EnableUserSSHKeyAgent)
 	m.SSHKeyIDs = setValue(sshKeys, m.SSHKeyIDs)
 
-	if m.OpenStack == nil {
-		m.OpenStack = &openstackCloud{NodePortsAllowedIPRanges: types.ListNull(types.StringType)}
-	}
-	if os := s.Cloud.OpenStack; os != nil {
-		m.OpenStack.FloatingIPPool = strOrNull(os.FloatingIPPool)
-		m.OpenStack.Network = strOrNull(os.Network)
-		m.OpenStack.SubnetID = strOrNull(os.SubnetID)
-		m.OpenStack.RouterID = strOrNull(os.RouterID)
-		m.OpenStack.SecurityGroups = strOrNull(os.SecurityGroups)
-		m.OpenStack.NodePortsAllowedIPRanges = listValue(cidrs(os.NodePortsAllowedIPRanges), m.OpenStack.NodePortsAllowedIPRanges)
+	for _, d := range clusterClouds {
+		o := m.clouds()[d.Name]
+		if raw, ok := s.Cloud.Providers[d.Name]; ok {
+			*o = d.fromJSON(raw, *o)
+		} else {
+			*o = d.null()
+		}
 	}
 	m.URL = strOrNull(c.Status.URL)
 	m.CreationTimestamp = types.StringValue(c.CreationTimestamp)
@@ -560,29 +524,10 @@ func (r *clusterResource) Update(ctx context.Context, req resource.UpdateRequest
 	if changedBool(plan.MLALogging, state.MLALogging) || changedBool(plan.MLAMonitoring, state.MLAMonitoring) {
 		spec["mla"] = map[string]any{"loggingEnabled": plan.MLALogging.ValueBool(), "monitoringEnabled": plan.MLAMonitoring.ValueBool()}
 	}
-	osPatch := map[string]any{}
-	po, so := plan.OpenStack.credentials(), state.OpenStack.credentials()
-	credsChanged := false
-	for i := range po {
-		if !po[i].Equal(so[i]) {
-			credsChanged = true
+	if d, ok := activeCloud(clusterClouds, plan.clouds()); ok {
+		if cp := d.patch(ctx, *plan.clouds()[d.Name], *state.clouds()[d.Name], false); len(cp) > 0 {
+			spec["cloud"] = map[string]any{d.Name: cp}
 		}
-	}
-	if credsChanged {
-		names := []string{"username", "password", "domain", "project", "projectID", "applicationCredentialID", "applicationCredentialSecret"}
-		for i, n := range names {
-			if v := po[i].ValueString(); v != "" {
-				osPatch[n] = v
-			} else {
-				osPatch[n] = nil
-			}
-		}
-	}
-	if !plan.OpenStack.NodePortsAllowedIPRanges.Equal(state.OpenStack.NodePortsAllowedIPRanges) {
-		osPatch["nodePortsAllowedIPRanges"] = cidrPatch(ctx, plan.OpenStack.NodePortsAllowedIPRanges, diags)
-	}
-	if len(osPatch) > 0 {
-		spec["cloud"] = map[string]any{"openstack": osPatch}
 	}
 	if len(spec) > 0 {
 		patch["spec"] = spec

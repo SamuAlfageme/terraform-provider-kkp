@@ -39,4 +39,5 @@ output "ubuntu_image" {
 - `openstack_availability_zone` (String) Default availability zone (OpenStack).
 - `openstack_enforce_floating_ip` (Boolean) Whether nodes must get floating IPs (OpenStack).
 - `openstack_region` (String) Region (OpenStack).
+- `region` (String) The cloud provider's region: OpenStack, AWS, GCP and DigitalOcean region, Azure or Hetzner location.
 - `seed` (String) Seed cluster hosting the datacenter's control planes.

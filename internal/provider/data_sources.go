@@ -152,6 +152,8 @@ type datacenterModel struct {
 	Provider types.String `tfsdk:"cloud_provider"`
 	Country  types.String `tfsdk:"country"`
 	Location types.String `tfsdk:"location"`
+	// CloudRegion is the provider's region (Azure: location, Hetzner: location).
+	CloudRegion types.String `tfsdk:"region"`
 	// OpenStack only.
 	AuthURL          types.String `tfsdk:"openstack_auth_url"`
 	Region           types.String `tfsdk:"openstack_region"`
@@ -170,6 +172,7 @@ func datacenterAttributes(nameRequired bool) map[string]schema.Attribute {
 		"cloud_provider":                c("Cloud provider, e.g. `openstack`."),
 		"country":                       c("ISO country code."),
 		"location":                      c("Human-readable location."),
+		"region":                        c("The cloud provider's region: OpenStack, AWS, GCP and DigitalOcean region, Azure or Hetzner location."),
 		"openstack_auth_url":            c("Keystone URL (OpenStack)."),
 		"openstack_region":              c("Region (OpenStack)."),
 		"openstack_availability_zone":   c("Default availability zone (OpenStack)."),
@@ -183,12 +186,25 @@ func toDatacenterModel(dc client.Datacenter) datacenterModel {
 		Name: types.StringValue(dc.Metadata.Name), Seed: types.StringValue(dc.Spec.Seed), Provider: types.StringValue(dc.Spec.Provider),
 		Country: strOrNull(dc.Spec.Country), Location: strOrNull(dc.Spec.Location),
 		AuthURL: types.StringNull(), Region: types.StringNull(), AvailabilityZone: types.StringNull(), EnforceFIP: types.BoolNull(),
-		Images: types.MapNull(types.StringType),
+		Images: types.MapNull(types.StringType), CloudRegion: types.StringNull(),
 	}
-	if os := dc.Spec.OpenStack; os != nil {
+	sp := dc.Spec
+	switch {
+	case sp.OpenStack != nil:
+		os := sp.OpenStack
 		m.AuthURL, m.Region, m.AvailabilityZone = strOrNull(os.AuthURL), strOrNull(os.Region), strOrNull(os.AvailabilityZone)
 		m.EnforceFIP = types.BoolValue(os.EnforceFloatingIP)
-		m.Images = mapValue(os.Images)
+		m.CloudRegion, m.Images = strOrNull(os.Region), mapValue(os.Images)
+	case sp.AWS != nil:
+		m.CloudRegion, m.Images = strOrNull(sp.AWS.Region), mapValue(sp.AWS.Images)
+	case sp.Azure != nil:
+		m.CloudRegion, m.Images = strOrNull(sp.Azure.Location), mapValue(sp.Azure.Images)
+	case sp.GCP != nil:
+		m.CloudRegion = strOrNull(sp.GCP.Region)
+	case sp.Hetzner != nil:
+		m.CloudRegion = strOrNull(sp.Hetzner.Location)
+	case sp.DO != nil:
+		m.CloudRegion = strOrNull(sp.DO.Region)
 	}
 	return m
 }

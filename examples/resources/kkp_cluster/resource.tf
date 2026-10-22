@@ -21,3 +21,23 @@ resource "kkp_cluster" "staging" {
     create = "20m"
   }
 }
+
+# Other clouds set their own block instead of openstack, matching the datacenter's provider.
+resource "kkp_cluster" "aws" {
+  name       = "aws-prod"
+  datacenter = "aws-eu-central-1a"
+  version    = data.kkp_kubernetes_versions.openstack.default_version
+
+  aws = {
+    access_key_id     = var.aws_access_key_id
+    secret_access_key = var.aws_secret_access_key
+  }
+}
+
+resource "kkp_cluster" "hetzner" {
+  name              = "hetzner-dev"
+  datacenter        = "hetzner-nbg1"
+  version           = data.kkp_kubernetes_versions.openstack.default_version
+  credential_preset = "hetzner"
+  hetzner           = {}
+}
