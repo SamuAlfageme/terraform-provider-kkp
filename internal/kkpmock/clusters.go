@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -46,6 +47,63 @@ func (s *Server) observe(c *cluster) {
 		if (spec[k] == nil || spec[k] == "") && v != "" {
 			spec[k] = v
 		}
+	}
+}
+
+// defaultCloud is KKP's cluster defaulting: NodePorts are open to everyone unless restricted.
+func defaultCloud(c *cluster) {
+	name, spec := provider(c)
+	if spec != nil && clouds[name].NodePorts && spec["nodePortsAllowedIPRanges"] == nil {
+		spec["nodePortsAllowedIPRanges"] = map[string]any{"cidrBlocks": []any{"0.0.0.0/0"}}
+	}
+}
+
+// ospAnnotation holds a machine deployment's operating system profile.
+const ospAnnotation = "k8c.io/operating-system-profile"
+
+// reconcileMD adds what KKP and Operating System Manager add to every machine deployment they write: the
+// machine fields KKP defaults, system node labels and cloud tags, and the default operating system profile.
+func reconcileMD(c *cluster, m map[string]any) {
+	tpl := obj(m, "spec", "template")
+	prov, clusterCloud := provider(c)
+	node, mc, id := obj(tpl, "cloud", prov), clouds[prov], str(c.Obj, "id")
+	if mc.NodeDefaults != nil {
+		for k, v := range mc.NodeDefaults(findDC(str(c.Obj, "spec", "cloud", "dc")), clusterCloud, osName(tpl)) {
+			if (node[k] == nil || node[k] == "") && v != "" {
+				node[k] = v
+			}
+		}
+	}
+	if mc.SystemTags != nil {
+		tags := obj(node, "tags")
+		if tags == nil {
+			tags = map[string]any{}
+			node["tags"] = tags
+		}
+		maps.Copy(tags, mc.SystemTags(id, c.projectID))
+	}
+	if mc.SystemTagsList != nil {
+		tags := mc.SystemTagsList(id, c.projectID)
+		if l, ok := node["tags"].([]any); ok {
+			for _, t := range l {
+				tags = append(tags, fmt.Sprint(t))
+			}
+		}
+		slices.Sort(tags)
+		var out []any
+		for _, t := range slices.Compact(tags) {
+			out = append(out, t)
+		}
+		node["tags"] = out
+	}
+	labels := obj(tpl, "labels")
+	if labels == nil {
+		labels = map[string]any{}
+		tpl["labels"] = labels
+	}
+	labels["system/cluster"], labels["system/project"] = id, c.projectID
+	if ann := obj(m, "annotations"); str(ann, ospAnnotation) == "" {
+		ann[ospAnnotation] = "osp-" + osName(tpl)
 	}
 }
 
@@ -204,11 +262,19 @@ func registerClusterRoutes() {
 			}
 		}
 		labels := obj(in, "labels")
+		if len(s.ClusterLabels) > 0 {
+			if labels = clone(labels); labels == nil {
+				labels = map[string]any{}
+			}
+			for k, v := range s.ClusterLabels {
+				labels[k] = v
+			}
+		}
 		annotations := map[string]any{"kubermatic.io/mock-reconciled": "true"}
 		for k, v := range obj(in, "annotations") {
 			annotations[k] = v
 		}
-		c := &cluster{sshKeys: map[string]bool{}, mds: map[string]*md{}}
+		c := &cluster{projectID: str(p.Obj, "id"), sshKeys: map[string]bool{}, mds: map[string]*md{}}
 		c.Obj = map[string]any{"id": id, "name": in["name"], "type": "kubernetes", "creationTimestamp": now(),
 			"annotations": annotations, "spec": spec,
 			"status": map[string]any{"version": version, "url": fmt.Sprintf("https://%s.europe.kkp.example.com:6443", id)}}
@@ -218,6 +284,7 @@ func registerClusterRoutes() {
 		if nd := obj(b, "nodeDeployment"); nd != nil {
 			return 0, nil, fail(http.StatusNotImplemented, "the mock does not create initial node deployments")
 		}
+		defaultCloud(c)
 		stripCredentials(c)
 		p.clusters[id] = c
 		return 201, c.Obj, nil
@@ -301,6 +368,7 @@ func registerClusterRoutes() {
 			}
 		}
 		obj(c.Obj, "status")["version"] = str(oldSpec, "version")
+		defaultCloud(c)
 		stripCredentials(c)
 		return 200, c.Obj, nil
 	})
@@ -435,7 +503,7 @@ users:
 		}
 		spec := clone(obj(b, "spec"))
 		tpl := obj(spec, "template")
-		prov, clusterCloud := provider(c)
+		prov, _ := provider(c)
 		node := obj(tpl, "cloud", prov)
 		if tpl == nil || node == nil || len(obj(tpl, "cloud")) != 1 {
 			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: the node spec must be for the cluster's cloud provider, %s", prov)
@@ -447,13 +515,6 @@ users:
 		}
 		if osCount(tpl) != 1 {
 			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: exactly one operating system is required")
-		}
-		if f := clouds[prov].NodeDefaults; f != nil {
-			for k, v := range f(findDC(str(c.Obj, "spec", "cloud", "dc")), clusterCloud, osName(tpl)) {
-				if (node[k] == nil || node[k] == "") && v != "" {
-					node[k] = v
-				}
-			}
 		}
 		cp := str(c.Obj, "spec", "version")
 		if obj(tpl, "versions") == nil {
@@ -474,6 +535,7 @@ users:
 		}
 		m := &md{Obj: map[string]any{"id": name, "name": name, "creationTimestamp": now(), "annotations": annotations, "spec": spec,
 			"status": map[string]any{"replicas": spec["replicas"]}}}
+		reconcileMD(c, m.Obj)
 		c.mds[name] = m
 		return 201, m.Obj, nil
 	})
@@ -513,6 +575,7 @@ users:
 		rev, _ := strconv.Atoi(str(m.Obj, "annotations", "machinedeployment.clusters.k8s.io/revision"))
 		ann["machinedeployment.clusters.k8s.io/revision"] = strconv.Itoa(rev + 1)
 		m.Obj["annotations"] = ann
+		reconcileMD(c, m.Obj)
 		m.Obj["status"] = map[string]any{"replicas": spec["replicas"]}
 		return 200, m.Obj, nil
 	})

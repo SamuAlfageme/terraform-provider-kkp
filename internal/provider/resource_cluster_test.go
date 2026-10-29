@@ -47,6 +47,8 @@ resource "kkp_cluster" "c" {
 
 func TestAccClusterLifecycle(t *testing.T) {
 	s := newMock(t)
+	// Like the Switch Cloud Portal does; the label must not show up as a diff.
+	s.ClusterLabels = map[string]string{"app.kubernetes.io/managed-by": "scp-staging"}
 	project := s.AddProject("platform")
 	cfg := providerConfig(s, s.ServiceAccountToken(project), "")
 
@@ -69,6 +71,9 @@ func TestAccClusterLifecycle(t *testing.T) {
 					resource.TestCheckResourceAttr("kkp_cluster.c", "pods_cidr", "172.25.0.0/16"),
 					resource.TestCheckResourceAttr("kkp_cluster.c", "expose_strategy", "NodePort"),
 					resource.TestCheckResourceAttr("kkp_cluster.c", "ssh_key_ids.#", "1"),
+					resource.TestCheckResourceAttr("kkp_cluster.c", "labels.%", "1"),
+					// KKP opens NodePorts to everyone when no ranges are set.
+					resource.TestCheckResourceAttr("kkp_cluster.c", "openstack.node_ports_allowed_ip_ranges.0", "0.0.0.0/0"),
 					// KKP creates the network once the cluster is up; the provider waited for that.
 					resource.TestCheckResourceAttr("kkp_cluster.c", "openstack.floating_ip_pool", "public"),
 					resource.TestMatchResourceAttr("kkp_cluster.c", "openstack.network", regexp.MustCompile(`^kubernetes-`)),
@@ -208,6 +213,12 @@ resource "kkp_machine_deployment" "workers" {
 					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "kubelet_version", "1.32.5"),
 					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "available_replicas", "2"),
 					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "openstack.disk_size", "50"),
+					// KKP adds system labels and tags, the datacenter's availability zone and the default OSP;
+					// the labels and tags are left out, the rest is taken without a diff on the next plan.
+					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "node_labels.%", "1"),
+					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "openstack.tags.%", "1"),
+					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "openstack.availability_zone", "nova"),
+					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "operating_system_profile", "osp-ubuntu"),
 					func(*terraform.State) error {
 						posts := 0
 						for _, r := range s.Requests() {
@@ -245,7 +256,8 @@ resource "kkp_machine_deployment" "workers" {
 					resource.TestCheckNoResourceAttr("kkp_machine_deployment.workers", "openstack.disk_size"),
 					resource.TestCheckNoResourceAttr("kkp_machine_deployment.workers", "min_replicas"),
 					resource.TestCheckNoResourceAttr("kkp_machine_deployment.workers", "openstack.tags"),
-					resource.TestCheckNoResourceAttr("kkp_machine_deployment.workers", "operating_system_profile"),
+					// Back to the default profile, now for the new operating system.
+					resource.TestCheckResourceAttr("kkp_machine_deployment.workers", "operating_system_profile", "osp-flatcar"),
 				),
 			},
 			{

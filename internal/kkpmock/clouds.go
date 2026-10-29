@@ -15,6 +15,11 @@ type mockCloud struct {
 	NodeRequired []string
 	// NodeDefaults fills in machine fields KKP defaults.
 	NodeDefaults func(dc, clusterCloud map[string]any, osName string) map[string]any
+	// NodePorts: KKP allows NodePorts from 0.0.0.0/0 when nodePortsAllowedIPRanges is unset.
+	NodePorts bool
+	// SystemTags are the machine tags KKP adds (resources/machine/common.go): a map, or a list KKP sorts.
+	SystemTags     func(clusterID, projectID string) map[string]any
+	SystemTagsList func(clusterID, projectID string) []string
 }
 
 var clouds = map[string]mockCloud{
@@ -30,6 +35,13 @@ var clouds = map[string]mockCloud{
 				"securityGroups": "kubernetes-" + id, "floatingIPPool": "public"}
 		},
 		NodeRequired: []string{"flavor", "image"},
+		NodeDefaults: func(dc, _ map[string]any, _ string) map[string]any {
+			return map[string]any{"availabilityZone": str(dc, "spec", "openstack", "availabilityZone")}
+		},
+		NodePorts: true,
+		SystemTags: func(c, p string) map[string]any {
+			return map[string]any{"kubernetes-cluster": c, "system-cluster": c, "system-project": p}
+		},
 	},
 	"aws": {
 		Credentials: [][]string{{"accessKeyID", "secretAccessKey"}},
@@ -42,6 +54,10 @@ var clouds = map[string]mockCloud{
 		NodeDefaults: func(dc, _ map[string]any, osName string) map[string]any {
 			region := str(dc, "spec", "aws", "region")
 			return map[string]any{"ami": str(dc, "spec", "aws", "images", osName), "availabilityZone": region + "a", "subnetID": "subnet-0a1b2c3d"}
+		},
+		NodePorts: true,
+		SystemTags: func(c, p string) map[string]any {
+			return map[string]any{"kubernetes.io/cluster/" + c: "", "system/cluster": c, "system/project": p}
 		},
 	},
 	"azure": {
@@ -56,6 +72,10 @@ var clouds = map[string]mockCloud{
 		NodeDefaults: func(dc, _ map[string]any, osName string) map[string]any {
 			return map[string]any{"imageID": str(dc, "spec", "azure", "images", osName)}
 		},
+		NodePorts: true,
+		SystemTags: func(c, p string) map[string]any {
+			return map[string]any{"KubernetesCluster": c, "system-cluster": c, "system-project": p}
+		},
 	},
 	"gcp": {
 		Credentials: [][]string{{"serviceAccount"}},
@@ -66,6 +86,10 @@ var clouds = map[string]mockCloud{
 		NodeRequired: []string{"machineType", "diskSize", "diskType"},
 		NodeDefaults: func(dc, _ map[string]any, _ string) map[string]any {
 			return map[string]any{"zone": str(dc, "spec", "gcp", "region") + "-a"}
+		},
+		NodePorts: true,
+		SystemTagsList: func(c, p string) []string {
+			return []string{"kubernetes-cluster-" + c, "system-cluster-" + c, "system-project-" + p}
 		},
 	},
 	"hetzner": {
@@ -83,6 +107,9 @@ var clouds = map[string]mockCloud{
 		Credentials:  [][]string{{"token"}},
 		Secret:       []string{"token"},
 		NodeRequired: []string{"size"},
+		SystemTagsList: func(c, p string) []string {
+			return []string{"kubernetes", "kubernetes-cluster-" + c, "system-cluster-" + c, "system-project-" + p}
+		},
 	},
 }
 

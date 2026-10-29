@@ -27,6 +27,9 @@ var (
 // ospAnnotation picks the operating system profile of a machine deployment.
 const ospAnnotation = "k8c.io/operating-system-profile"
 
+// Node labels KKP adds to every machine deployment; they never show up in, or get removed from, node_labels.
+var systemNodeLabels = []string{"system/cluster", "system/project"}
+
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 func newMachineDeploymentResource() resource.Resource { return &machineDeploymentResource{} }
@@ -79,9 +82,6 @@ func (r *machineDeploymentResource) Metadata(_ context.Context, req resource.Met
 }
 
 func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	str := func(desc string) schema.StringAttribute {
-		return schema.StringAttribute{Optional: true, MarkdownDescription: desc}
-	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A machine deployment: a group of worker nodes of a cluster. KKP refuses machine deployments until the " +
 			"cluster's control plane is healthy, so the provider retries creation until then. Changing the node template " +
@@ -104,9 +104,13 @@ func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.Schem
 				Validators: []validator.String{stringvalidator.OneOf("ubuntu", "flatcar", "rhel", "rockylinux", "amzn2")}},
 			"dist_upgrade_on_boot":        defaultBool("Upgrade all packages on first boot (all but Flatcar).", false),
 			"flatcar_disable_auto_update": defaultBool("Disable Flatcar's automatic updates.", false),
-			"operating_system_profile":    str("Operating System Manager profile to use instead of the default for the OS."),
-			"node_labels":                 schema.MapAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Kubernetes labels for the nodes."},
-			"node_annotations":            schema.MapAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Kubernetes annotations for the nodes."},
+			"operating_system_profile": schema.StringAttribute{Optional: true, Computed: true,
+				MarkdownDescription: "Operating System Manager profile. Defaults to the one for the OS, e.g. `osp-ubuntu`; " +
+					"a profile removed from the configuration stays until the OS changes.",
+				PlanModifiers: []planmodifier.String{keepOSPForSameOS{}}},
+			"node_labels": schema.MapAttribute{Optional: true, ElementType: types.StringType,
+				MarkdownDescription: "Kubernetes labels for the nodes. The labels KKP adds (`system/cluster`, `system/project`) are ignored."},
+			"node_annotations": schema.MapAttribute{Optional: true, ElementType: types.StringType, MarkdownDescription: "Kubernetes annotations for the nodes."},
 			"taints": schema.ListNestedAttribute{
 				Optional:            true,
 				MarkdownDescription: "Taints for the nodes.",
@@ -125,6 +129,28 @@ func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.Schem
 	}
 	for _, d := range nodeClouds {
 		resp.Schema.Attributes[d.Name] = d.schema("machine settings, matching the cluster's cloud provider")
+	}
+}
+
+// keepOSPForSameOS keeps the operating system profile from state when it is not configured, unless the
+// operating system changes: then the annotation is dropped and Operating System Manager picks the new default.
+type keepOSPForSameOS struct{}
+
+func (keepOSPForSameOS) Description(context.Context) string {
+	return "Keeps the profile from state unless the operating system changes."
+}
+
+func (m keepOSPForSameOS) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+
+func (keepOSPForSameOS) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.StateValue.IsNull() || !req.ConfigValue.IsNull() || !resp.PlanValue.IsUnknown() {
+		return
+	}
+	var planOS, stateOS types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("operating_system"), &planOS)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("operating_system"), &stateOS)...)
+	if planOS.Equal(stateOS) {
+		resp.PlanValue = req.StateValue
 	}
 }
 
@@ -234,7 +260,7 @@ func (r *machineDeploymentResource) fill(m *machineDeploymentModel, projectID, c
 		}
 	}
 	m.OperatingSystemProfile = strOrNull(md.Annotations[ospAnnotation])
-	m.NodeLabels = mapKeep(t.Labels, m.NodeLabels)
+	m.NodeLabels = mapKeep(withoutKeys(t.Labels, systemNodeLabels...), m.NodeLabels)
 	m.NodeAnnotations = mapKeep(t.Annotations, m.NodeAnnotations)
 	if len(t.Taints) == 0 && m.Taints != nil && len(m.Taints) == 0 {
 		// keep an explicit empty list

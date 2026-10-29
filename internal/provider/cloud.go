@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -56,6 +57,18 @@ type cloudField struct {
 	// Default applies to booleans.
 	Default    *bool
 	Validators []validator.String
+	// System are the map keys or list entries KKP adds itself (a trailing "*" matches a prefix). They are
+	// left out of state, so they neither show up as a diff nor get removed.
+	System []string
+}
+
+func (f cloudField) system(s string) bool {
+	return slices.ContainsFunc(f.System, func(p string) bool {
+		if prefix, ok := strings.CutSuffix(p, "*"); ok {
+			return strings.HasPrefix(s, prefix)
+		}
+		return s == p
+	})
 }
 
 // credentialSet is one accepted way of authenticating: all Required fields, plus any of Optional.
@@ -148,7 +161,12 @@ func (f cloudField) schema(desc string) schema.Attribute {
 	case kStringMap:
 		return schema.MapAttribute{Required: f.Required, Optional: optional, ElementType: types.StringType, MarkdownDescription: desc}
 	case kStringList, kRanges:
-		return schema.ListAttribute{Required: f.Required, Optional: optional, ElementType: types.StringType, MarkdownDescription: desc}
+		a := schema.ListAttribute{Required: f.Required, Optional: optional, Computed: computed, ElementType: types.StringType,
+			MarkdownDescription: desc}
+		if computed {
+			a.PlanModifiers = append(a.PlanModifiers, listplanmodifier.UseStateForUnknown())
+		}
+		return a
 	default:
 		a := schema.StringAttribute{Required: f.Required, Optional: optional, Computed: computed && !f.Credential,
 			Sensitive: f.Sensitive, MarkdownDescription: desc, Validators: f.Validators}
@@ -221,7 +239,9 @@ func (f cloudField) fromJSON(raw any, prior attr.Value) attr.Value {
 		m := map[string]string{}
 		if rm, ok := raw.(map[string]any); ok {
 			for k, v := range rm {
-				m[k] = fmt.Sprint(v)
+				if !f.system(k) {
+					m[k] = fmt.Sprint(v)
+				}
 			}
 		}
 		if keepEmpty(len(m)) {
@@ -236,10 +256,12 @@ func (f cloudField) fromJSON(raw any, prior attr.Value) attr.Value {
 		var l []string
 		if rl, ok := raw.([]any); ok {
 			for _, v := range rl {
-				l = append(l, fmt.Sprint(v))
+				if s := fmt.Sprint(v); !f.system(s) {
+					l = append(l, s)
+				}
 			}
 		}
-		if keepEmpty(len(l)) {
+		if keepEmpty(len(l)) || sameElements(l, prior) {
 			return prior
 		}
 		return listValue(l, types.ListNull(types.StringType))
@@ -247,6 +269,26 @@ func (f cloudField) fromJSON(raw any, prior attr.Value) attr.Value {
 		s, _ := raw.(string)
 		return strOrNull(s)
 	}
+}
+
+// sameElements reports whether prior is a known list of the elements of l in another order (KKP sorts tags).
+func sameElements(l []string, prior attr.Value) bool {
+	p, ok := prior.(basetypes.ListValue)
+	if !ok || p.IsNull() || p.IsUnknown() || len(p.Elements()) != len(l) {
+		return false
+	}
+	var ps []string
+	for _, e := range p.Elements() {
+		s, ok := e.(basetypes.StringValue)
+		if !ok {
+			return false
+		}
+		ps = append(ps, s.ValueString())
+	}
+	a, b := slices.Clone(l), ps
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func attrs(o types.Object) map[string]attr.Value {
@@ -442,7 +484,7 @@ var clusterClouds = []cloudDef{
 			{Name: "subnet_id", JSON: "subnetID", Computed: true, Replace: true, Desc: "Existing subnet for the nodes. KKP creates one when unset."},
 			{Name: "router_id", JSON: "routerID", Computed: true, Replace: true, Desc: "Existing router. KKP creates one when unset."},
 			{Name: "security_groups", JSON: "securityGroups", Computed: true, Replace: true, Desc: "Existing security group for the nodes. KKP creates one when unset."},
-			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Desc: "CIDRs allowed to reach NodePort services."},
+			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Computed: true, Desc: "CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset."},
 		},
 		CredentialSets: []credentialSet{
 			{Required: []string{"username", "password", "domain", "project"}, Optional: []string{"project_id"}},
@@ -463,7 +505,7 @@ var clusterClouds = []cloudDef{
 			{Name: "instance_profile_name", JSON: "instanceProfileName", Computed: true, Replace: true, Desc: "Existing IAM instance profile for the nodes. KKP creates one when unset."},
 			{Name: "role_arn", JSON: "roleARN", Computed: true, Replace: true, Desc: "IAM role for the control plane. KKP creates one when unset."},
 			{Name: "disable_iam_reconciling", JSON: "disableIAMReconciling", Kind: kBool, Default: b(false), Replace: true, Desc: "Let KKP leave IAM resources alone (use with existing roles and profiles)."},
-			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Desc: "CIDRs allowed to reach NodePort services."},
+			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Computed: true, Desc: "CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset."},
 		},
 		CredentialSets: []credentialSet{
 			{Required: []string{"access_key_id", "secret_access_key"}, Optional: []string{"assume_role_arn", "assume_role_external_id"}},
@@ -485,7 +527,7 @@ var clusterClouds = []cloudDef{
 			{Name: "availability_set", JSON: "availabilitySet", Computed: true, Replace: true, Desc: "Existing availability set for the nodes."},
 			{Name: "assign_availability_set", JSON: "assignAvailabilitySet", Kind: kBool, Replace: true, Desc: "Create and assign an availability set to the nodes."},
 			{Name: "load_balancer_sku", JSON: "loadBalancerSKU", Computed: true, Replace: true, Desc: "Load balancer SKU: `basic` or `standard`."},
-			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Desc: "CIDRs allowed to reach NodePort services."},
+			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Computed: true, Desc: "CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset."},
 		},
 		CredentialSets: []credentialSet{{Required: []string{"tenant_id", "subscription_id", "client_id", "client_secret"}}},
 	},
@@ -496,7 +538,7 @@ var clusterClouds = []cloudDef{
 				Desc: "Service account key as JSON, e.g. `file(\"sa.json\")`. The provider base64-encodes it, as KKP expects."},
 			{Name: "network", JSON: "network", Computed: true, Replace: true, Desc: "Existing VPC network, e.g. `global/networks/default`."},
 			{Name: "subnetwork", JSON: "subnetwork", Computed: true, Replace: true, Desc: "Existing subnetwork, e.g. `projects/p/regions/r/subnetworks/s`."},
-			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Desc: "CIDRs allowed to reach NodePort services."},
+			{Name: "node_ports_allowed_ip_ranges", JSON: "nodePortsAllowedIPRanges", Kind: kRanges, Computed: true, Desc: "CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset."},
 		},
 		CredentialSets: []credentialSet{{Required: []string{"service_account"}}},
 	},
@@ -525,13 +567,14 @@ var nodeClouds = []cloudDef{
 			{Name: "flavor", JSON: "flavor", Required: true, Desc: "Flavor name."},
 			{Name: "image", JSON: "image", Required: true, Desc: "Image name or ID. The datacenter's default images are listed by `kkp_datacenter`."},
 			{Name: "disk_size", JSON: "diskSize", Kind: kInt, Desc: "Root volume size in GB. Unset uses the flavor's local disk."},
-			{Name: "availability_zone", JSON: "availabilityZone", Desc: "Availability zone."},
+			{Name: "availability_zone", JSON: "availabilityZone", Computed: true, Desc: "Availability zone. Defaults to the datacenter's."},
 			{Name: "server_group", JSON: "serverGroup", Desc: "Server group ID, e.g. for anti-affinity."},
 			{Name: "use_floating_ip", JSON: "useFloatingIP", Kind: kBool, Default: b(false), Desc: "Give every node a floating IP."},
 			{Name: "config_drive", JSON: "configDrive", Kind: kBool, Default: b(false), Desc: "Use a config drive instead of the metadata service."},
 			{Name: "instance_ready_check_period", JSON: "instanceReadyCheckPeriod", Desc: "How often machine-controller checks a new instance, e.g. `5s`."},
 			{Name: "instance_ready_check_timeout", JSON: "instanceReadyCheckTimeout", Desc: "How long machine-controller waits for a new instance, e.g. `2m`."},
-			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "OpenStack server tags (metadata)."},
+			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "OpenStack server tags (metadata). The tags KKP adds (`kubernetes-cluster`, `system-cluster`, `system-project`) are ignored.",
+				System: []string{"kubernetes-cluster", "system-cluster", "system-project"}},
 		},
 	},
 	{
@@ -549,7 +592,8 @@ var nodeClouds = []cloudDef{
 			{Name: "spot_instance_max_price", JSON: "spotInstanceMaxPrice", Desc: "Maximum hourly spot price."},
 			{Name: "spot_instance_persistent_request", JSON: "spotInstancePersistentRequest", Kind: kBool, Default: b(false), Desc: "Keep the spot request open after an interruption."},
 			{Name: "spot_instance_interruption_behavior", JSON: "spotInstanceInterruptionBehavior", Desc: "`terminate`, `stop` or `hibernate`."},
-			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "Extra instance tags."},
+			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "Extra instance tags. The tags KKP adds (`kubernetes.io/cluster/<id>`, `system/cluster`, `system/project`) are ignored.",
+				System: []string{"kubernetes.io/cluster/*", "system/cluster", "system/project"}},
 		},
 	},
 	{
@@ -563,7 +607,8 @@ var nodeClouds = []cloudDef{
 			{Name: "assign_public_ip", JSON: "assignPublicIP", Kind: kBool, Default: b(false), Desc: "Give the nodes public IPs."},
 			{Name: "assign_availability_set", JSON: "assignAvailabilitySet", Kind: kBool, Desc: "Put the nodes into the cluster's availability set."},
 			{Name: "enable_accelerated_networking", JSON: "enableAcceleratedNetworking", Kind: kBool, Default: b(false), Desc: "Enable accelerated networking."},
-			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "Extra VM tags."},
+			{Name: "tags", JSON: "tags", Kind: kStringMap, Desc: "Extra VM tags. The tags KKP adds (`KubernetesCluster`, `system-cluster`, `system-project`) are ignored.",
+				System: []string{"KubernetesCluster", "system-cluster", "system-project"}},
 		},
 	},
 	{
@@ -576,7 +621,8 @@ var nodeClouds = []cloudDef{
 			{Name: "preemptible", JSON: "preemptible", Kind: kBool, Default: b(false), Desc: "Use preemptible VMs."},
 			{Name: "custom_image", JSON: "customImage", Desc: "Custom image instead of the operating system's default."},
 			{Name: "labels", JSON: "labels", Kind: kStringMap, Desc: "GCE labels."},
-			{Name: "tags", JSON: "tags", Kind: kStringList, Desc: "GCE network tags."},
+			{Name: "tags", JSON: "tags", Kind: kStringList, Desc: "GCE network tags. The tags KKP adds (`kubernetes-cluster-<id>`, `system-cluster-<id>`, `system-project-<id>`) are ignored.",
+				System: []string{"kubernetes-cluster-*", "system-cluster-*", "system-project-*"}},
 		},
 	},
 	{
@@ -592,7 +638,8 @@ var nodeClouds = []cloudDef{
 			{Name: "size", JSON: "size", Required: true, Desc: "Droplet size slug, e.g. `s-4vcpu-8gb`."},
 			{Name: "backups", JSON: "backups", Kind: kBool, Default: b(false), Desc: "Enable droplet backups."},
 			{Name: "monitoring", JSON: "monitoring", Kind: kBool, Default: b(false), Desc: "Enable droplet monitoring."},
-			{Name: "tags", JSON: "tags", Kind: kStringList, Desc: "Extra droplet tags."},
+			{Name: "tags", JSON: "tags", Kind: kStringList, Desc: "Extra droplet tags. The tags KKP adds (`kubernetes`, `kubernetes-cluster-<id>`, `system-cluster-<id>`, `system-project-<id>`) are ignored.",
+				System: []string{"kubernetes", "kubernetes-cluster-*", "system-cluster-*", "system-project-*"}},
 		},
 	},
 }

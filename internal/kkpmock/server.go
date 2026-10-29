@@ -9,7 +9,9 @@
 //   - PATCH is a JSON merge patch and only some cluster fields are taken from it, the rest are dropped;
 //   - deletion is asynchronous (deletionTimestamp first, 404 a few polls later);
 //   - service account and member groups come back suffixed with "-<project id>";
-//   - service account tokens cannot create projects.
+//   - service account tokens cannot create projects;
+//   - KKP fills in fields it was not sent: NodePort IP ranges on clusters, system labels and cloud tags, the
+//     datacenter's availability zone and a default operating system profile on machine deployments.
 package kkpmock
 
 import (
@@ -44,6 +46,8 @@ type Server struct {
 	FailNext int
 	// LastDelete records the cleanup headers of the last cluster deletion.
 	LastDelete LastClusterDelete
+	// ClusterLabels are added to every new cluster, as a project portal does with app.kubernetes.io/managed-by.
+	ClusterLabels map[string]string
 
 	projects map[string]*project
 	// tokens maps a bearer token to the project of the service account it belongs to ("" = admin user).
@@ -63,11 +67,12 @@ type project struct {
 }
 
 type cluster struct {
-	Obj      map[string]any
-	sshKeys  map[string]bool
-	polls    int
-	deleting int
-	mds      map[string]*md
+	Obj       map[string]any
+	projectID string
+	sshKeys   map[string]bool
+	polls     int
+	deleting  int
+	mds       map[string]*md
 }
 
 type md struct {

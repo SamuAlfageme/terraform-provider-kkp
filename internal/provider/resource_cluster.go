@@ -27,7 +27,8 @@ var (
 )
 
 // Labels KKP manages on clusters; they never show up in, or get removed from, the labels attribute.
-var systemClusterLabels = []string{"project-id", "is-credential-preset", "worker-name"}
+var systemClusterLabels = []string{"project-id", "is-credential-preset", "worker-name",
+	"app.kubernetes.io/managed-by"} // set by project portals such as the Switch Cloud Portal
 
 func newClusterResource() resource.Resource { return &clusterResource{} }
 
@@ -143,7 +144,7 @@ func (r *clusterResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 			"version":           schema.StringAttribute{Required: true, MarkdownDescription: "Kubernetes version of the control plane, e.g. `1.32.5`. See `kkp_kubernetes_versions`."},
 			"credential_preset": replaceString(false, "Name of a KKP preset to take the cloud credentials from, instead of setting them in the cloud block."),
 			"labels": schema.MapAttribute{Optional: true, ElementType: types.StringType,
-				MarkdownDescription: "Labels. Labels KKP manages itself (`project-id`, `is-credential-preset`, `worker-name`) are ignored."},
+				MarkdownDescription: "Labels. Labels KKP manages itself (`project-id`, `is-credential-preset`, `worker-name`) and `app.kubernetes.io/managed-by` (set by project portals) are ignored."},
 			"expose_strategy": computedString("How the API server is exposed: `NodePort`, `LoadBalancer` or `Tunneling`. Defaults to the seed's setting.", false,
 				stringvalidator.OneOf("NodePort", "LoadBalancer", "Tunneling")),
 			"cni_type":      computedString("CNI plugin: `cilium`, `canal` or `none`. Defaults to KKP's choice (Cilium).", true, stringvalidator.OneOf("cilium", "canal", "none")),

@@ -90,7 +90,7 @@ resource "kkp_cluster" "hetzner" {
 - `konnectivity` (Boolean) Use Konnectivity for control plane to node traffic.
 - `kubernetes_dashboard` (Boolean) Deploy the Kubernetes dashboard.
 - `kyverno` (Boolean) Enable Kyverno (Enterprise Edition).
-- `labels` (Map of String) Labels. Labels KKP manages itself (`project-id`, `is-credential-preset`, `worker-name`) are ignored.
+- `labels` (Map of String) Labels. Labels KKP manages itself (`project-id`, `is-credential-preset`, `worker-name`) and `app.kubernetes.io/managed-by` (set by project portals) are ignored.
 - `mla_logging` (Boolean) Enable user cluster logging (MLA).
 - `mla_monitoring` (Boolean) Enable user cluster monitoring (MLA).
 - `node_local_dns_cache` (Boolean) Run NodeLocal DNSCache on the nodes.
@@ -121,7 +121,7 @@ Optional:
 - `assume_role_external_id` (String) External ID for assuming `assume_role_arn`. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `disable_iam_reconciling` (Boolean) Let KKP leave IAM resources alone (use with existing roles and profiles).
 - `instance_profile_name` (String) Existing IAM instance profile for the nodes. KKP creates one when unset.
-- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services.
+- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset.
 - `role_arn` (String) IAM role for the control plane. KKP creates one when unset.
 - `route_table_id` (String) Existing route table. KKP uses the VPC's main route table when unset.
 - `secret_access_key` (String, Sensitive) Secret access key. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
@@ -139,7 +139,7 @@ Optional:
 - `client_id` (String) Service principal client ID. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `client_secret` (String, Sensitive) Service principal client secret. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `load_balancer_sku` (String) Load balancer SKU: `basic` or `standard`.
-- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services.
+- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset.
 - `resource_group` (String) Resource group for the cluster's resources. KKP creates one when unset.
 - `route_table` (String) Existing route table of the subnet. KKP creates one when unset.
 - `security_group` (String) Existing security group of the subnet. KKP creates one when unset.
@@ -164,7 +164,7 @@ Optional:
 Optional:
 
 - `network` (String) Existing VPC network, e.g. `global/networks/default`.
-- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services.
+- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset.
 - `service_account` (String, Sensitive) Service account key as JSON, e.g. `file("sa.json")`. The provider base64-encodes it, as KKP expects. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `subnetwork` (String) Existing subnetwork, e.g. `projects/p/regions/r/subnetworks/s`.
 
@@ -188,7 +188,7 @@ Optional:
 - `domain` (String) OpenStack domain. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `floating_ip_pool` (String) External network for floating IPs. KKP picks one when unset.
 - `network` (String) Existing network for the nodes. KKP creates one when unset.
-- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services.
+- `node_ports_allowed_ip_ranges` (List of String) CIDRs allowed to reach NodePort services. KKP allows 0.0.0.0/0 when unset.
 - `password` (String, Sensitive) OpenStack password. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `project` (String) OpenStack project (tenant) name. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.
 - `project_id` (String) OpenStack project (tenant) ID. KKP stores credentials in a secret and never returns them, so changes made outside Terraform are not detected.

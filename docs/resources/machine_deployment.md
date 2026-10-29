@@ -77,9 +77,9 @@ resource "kkp_machine_deployment" "hetzner" {
 - `max_replicas` (Number) Upper bound for the cluster autoscaler.
 - `min_replicas` (Number) Lower bound for the cluster autoscaler. Set together with `max_replicas`.
 - `node_annotations` (Map of String) Kubernetes annotations for the nodes.
-- `node_labels` (Map of String) Kubernetes labels for the nodes.
+- `node_labels` (Map of String) Kubernetes labels for the nodes. The labels KKP adds (`system/cluster`, `system/project`) are ignored.
 - `openstack` (Attributes) OpenStack machine settings, matching the cluster's cloud provider. Set the block of the datacenter's cloud provider, and only that one. (see [below for nested schema](#nestedatt--openstack))
-- `operating_system_profile` (String) Operating System Manager profile to use instead of the default for the OS.
+- `operating_system_profile` (String) Operating System Manager profile. Defaults to the one for the OS, e.g. `osp-ubuntu`; a profile removed from the configuration stays until the OS changes.
 - `paused` (Boolean) Pause rollouts of template changes.
 - `project_id` (String) Project ID. Defaults to the provider's `project_id`.
 - `taints` (Attributes List) Taints for the nodes. (see [below for nested schema](#nestedatt--taints))
@@ -113,7 +113,7 @@ Optional:
 - `spot_instance_max_price` (String) Maximum hourly spot price.
 - `spot_instance_persistent_request` (Boolean) Keep the spot request open after an interruption.
 - `subnet_id` (String) Subnet of the cluster's VPC.
-- `tags` (Map of String) Extra instance tags.
+- `tags` (Map of String) Extra instance tags. The tags KKP adds (`kubernetes.io/cluster/<id>`, `system/cluster`, `system/project`) are ignored.
 
 
 <a id="nestedatt--azure"></a>
@@ -131,7 +131,7 @@ Optional:
 - `enable_accelerated_networking` (Boolean) Enable accelerated networking.
 - `image_id` (String) Image ID. Defaults to the datacenter's image for the operating system.
 - `os_disk_size` (Number) OS disk size in GB.
-- `tags` (Map of String) Extra VM tags.
+- `tags` (Map of String) Extra VM tags. The tags KKP adds (`KubernetesCluster`, `system-cluster`, `system-project`) are ignored.
 - `zones` (List of String) Availability zones, e.g. `["1", "2"]`.
 
 
@@ -146,7 +146,7 @@ Optional:
 
 - `backups` (Boolean) Enable droplet backups.
 - `monitoring` (Boolean) Enable droplet monitoring.
-- `tags` (List of String) Extra droplet tags.
+- `tags` (List of String) Extra droplet tags. The tags KKP adds (`kubernetes`, `kubernetes-cluster-<id>`, `system-cluster-<id>`, `system-project-<id>`) are ignored.
 
 
 <a id="nestedatt--gcp"></a>
@@ -163,7 +163,7 @@ Optional:
 - `custom_image` (String) Custom image instead of the operating system's default.
 - `labels` (Map of String) GCE labels.
 - `preemptible` (Boolean) Use preemptible VMs.
-- `tags` (List of String) GCE network tags.
+- `tags` (List of String) GCE network tags. The tags KKP adds (`kubernetes-cluster-<id>`, `system-cluster-<id>`, `system-project-<id>`) are ignored.
 - `zone` (String) Zone, e.g. `europe-west3-a`. Defaults to a zone of the datacenter.
 
 
@@ -189,13 +189,13 @@ Required:
 
 Optional:
 
-- `availability_zone` (String) Availability zone.
+- `availability_zone` (String) Availability zone. Defaults to the datacenter's.
 - `config_drive` (Boolean) Use a config drive instead of the metadata service.
 - `disk_size` (Number) Root volume size in GB. Unset uses the flavor's local disk.
 - `instance_ready_check_period` (String) How often machine-controller checks a new instance, e.g. `5s`.
 - `instance_ready_check_timeout` (String) How long machine-controller waits for a new instance, e.g. `2m`.
 - `server_group` (String) Server group ID, e.g. for anti-affinity.
-- `tags` (Map of String) OpenStack server tags (metadata).
+- `tags` (Map of String) OpenStack server tags (metadata). The tags KKP adds (`kubernetes-cluster`, `system-cluster`, `system-project`) are ignored.
 - `use_floating_ip` (Boolean) Give every node a floating IP.
 
 
