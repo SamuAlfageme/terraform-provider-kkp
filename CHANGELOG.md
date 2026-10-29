@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Resource `kkp_cluster_service_account`: a Kubernetes service account in a user cluster with cluster role bindings (e.g. `cluster-admin`) and a kubeconfig that uses its token, created through the KKP API. It works on installations that disable admin kubeconfigs.
+
 ## [0.1.1] - 2026-10-29
 
 ### Fixed

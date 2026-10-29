@@ -37,6 +37,7 @@ resource "kkp_machine_deployment" "workers" {
 | Machine deployments | [`kkp_machine_deployment`](docs/resources/machine_deployment.md) | – |
 | SSH keys | [`kkp_ssh_key`](docs/resources/ssh_key.md) | – |
 | Service accounts and tokens | [`kkp_service_account`](docs/resources/service_account.md), [`kkp_service_account_token`](docs/resources/service_account_token.md) | – |
+| Service accounts in user clusters | [`kkp_cluster_service_account`](docs/resources/cluster_service_account.md) | – |
 | Project members | [`kkp_project_member`](docs/resources/project_member.md) | – |
 | Datacenters, versions | – | [`kkp_datacenter`](docs/data-sources/datacenter.md), [`kkp_datacenters`](docs/data-sources/datacenters.md), [`kkp_kubernetes_versions`](docs/data-sources/kubernetes_versions.md) |
 

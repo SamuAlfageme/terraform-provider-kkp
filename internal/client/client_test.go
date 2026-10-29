@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +113,57 @@ func TestServiceAccountScope(t *testing.T) {
 	}
 	if _, err := c.GetProject(context.Background(), other); !client.IsForbidden(err) {
 		t.Fatalf("got %v, want forbidden", err)
+	}
+}
+
+func TestClusterServiceAccounts(t *testing.T) {
+	s := kkpmock.New()
+	defer s.Close()
+	ctx := context.Background()
+	p := s.AddProject("platform")
+	c := newClient(t, s.URL, kkpmock.AdminToken, 3)
+	cl, err := c.CreateCluster(ctx, p, client.CreateClusterBody{Cluster: client.Cluster{
+		ObjectMeta: client.ObjectMeta{Name: "canary"},
+		Spec: client.ClusterSpec{Version: "1.32.5", Cloud: client.CloudSpec{DatacenterName: "os-zurich", Providers: map[string]map[string]any{
+			"openstack": {"username": "u", "password": "p", "domain": "Default", "project": "x"},
+		}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateClusterServiceAccount(ctx, p, cl.ID, "kube-system", "canary"); err != nil {
+		t.Fatal(err)
+	}
+	sa, err := c.GetClusterServiceAccount(ctx, p, cl.ID, "kube-system", "canary")
+	if err != nil || sa.ID != "canary" || sa.Namespace != "kube-system" {
+		t.Fatalf("got %+v, %v", sa, err)
+	}
+	subject := client.ClusterRoleUser{ServiceAccount: "canary", ServiceAccountNamespace: "kube-system"}
+	if err := c.BindClusterRole(ctx, p, cl.ID, "cluster-admin", subject); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.BindClusterRole(ctx, p, cl.ID, "cluster-admin", subject); err == nil {
+		t.Fatal("binding twice should fail with 'already connected'")
+	}
+	perms, err := c.GetClusterServiceAccountPermissions(ctx, p, cl.ID, "kube-system", "canary")
+	if err != nil || len(perms) != 1 || perms[0].Scope != client.PermissionCluster || perms[0].RoleRefName != "cluster-admin" {
+		t.Fatalf("got %+v, %v", perms, err)
+	}
+	// The token secret is empty on the first request; the client's retry of the 500 gets past it.
+	kc, err := c.GetClusterServiceAccountKubeconfig(ctx, p, cl.ID, "kube-system", "canary")
+	if err != nil || !strings.Contains(kc, "mock-sa-token.kube-system.canary") {
+		t.Fatalf("got %q, %v", kc, err)
+	}
+	if err := c.UnbindClusterRole(ctx, p, cl.ID, "cluster-admin", subject); err != nil {
+		t.Fatal(err)
+	}
+	if roles := s.ClusterServiceAccountRoles(p, cl.ID, "kube-system", "canary"); len(roles) != 0 {
+		t.Fatalf("still bound to %v", roles)
+	}
+	if err := c.DeleteClusterServiceAccount(ctx, p, cl.ID, "kube-system", "canary"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.GetClusterServiceAccount(ctx, p, cl.ID, "kube-system", "canary"); !client.IsNotFound(err) {
+		t.Fatalf("want 404 after delete, got %v", err)
 	}
 }

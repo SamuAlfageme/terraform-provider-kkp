@@ -301,3 +301,75 @@ func (c *Client) DeleteMachineDeployment(ctx context.Context, projectID, cluster
 func (c *Client) RestartMachineDeployment(ctx context.Context, projectID, clusterID, id string) error {
 	return c.post(ctx, mdsPath(projectID, clusterID)+"/"+esc(id), nil, nil)
 }
+
+// Cluster service accounts: Kubernetes service accounts in a user cluster, created and bound through the KKP API,
+// so they work where admin kubeconfigs are disabled.
+
+func clusterSAsPath(projectID, clusterID string) string {
+	return clusterPath(projectID, clusterID) + "/serviceaccount"
+}
+
+func clusterSAPath(projectID, clusterID, namespace, name string) string {
+	return clusterSAsPath(projectID, clusterID) + "/" + esc(namespace) + "/" + esc(name)
+}
+
+// ListClusterServiceAccounts lists the service accounts KKP created (labelled component=clusterServiceAccount).
+func (c *Client) ListClusterServiceAccounts(ctx context.Context, projectID, clusterID string) ([]ClusterServiceAccount, error) {
+	var out []ClusterServiceAccount
+	return out, c.get(ctx, clusterSAsPath(projectID, clusterID), &out)
+}
+
+// GetClusterServiceAccount lists and filters: KKP has no GET for a single cluster service account.
+func (c *Client) GetClusterServiceAccount(ctx context.Context, projectID, clusterID, namespace, name string) (*ClusterServiceAccount, error) {
+	sas, err := c.ListClusterServiceAccounts(ctx, projectID, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range sas {
+		if sas[i].Namespace == namespace && sas[i].Name == name {
+			return &sas[i], nil
+		}
+	}
+	return nil, &APIError{Method: http.MethodGet, Path: "serviceaccount/" + namespace + "/" + name, StatusCode: http.StatusNotFound, Message: "cluster service account not found"}
+}
+
+// CreateClusterServiceAccount creates the service account and a token secret for it in the user cluster.
+func (c *Client) CreateClusterServiceAccount(ctx context.Context, projectID, clusterID, namespace, name string) (*ClusterServiceAccount, error) {
+	var out ClusterServiceAccount
+	body := ClusterServiceAccount{ObjectMeta: ObjectMeta{Name: name}, Namespace: namespace}
+	return &out, c.post(ctx, clusterSAsPath(projectID, clusterID), body, &out)
+}
+
+// DeleteClusterServiceAccount removes the service account from every KKP binding, then deletes it.
+func (c *Client) DeleteClusterServiceAccount(ctx context.Context, projectID, clusterID, namespace, name string) error {
+	return c.delete(ctx, clusterSAPath(projectID, clusterID, namespace, name), nil)
+}
+
+// GetClusterServiceAccountKubeconfig returns a kubeconfig YAML with the service account's token. It fails until
+// the token controller has filled in the token secret.
+func (c *Client) GetClusterServiceAccountKubeconfig(ctx context.Context, projectID, clusterID, namespace, name string) (string, error) {
+	var raw []byte
+	err := c.do(ctx, request{method: http.MethodGet, path: clusterSAPath(projectID, clusterID, namespace, name) + "/kubeconfig"}, &raw)
+	return string(raw), err
+}
+
+// GetClusterServiceAccountPermissions lists the KKP bindings (cluster roles and roles) of the service account.
+func (c *Client) GetClusterServiceAccountPermissions(ctx context.Context, projectID, clusterID, namespace, name string) ([]Permission, error) {
+	var out []Permission
+	return out, c.get(ctx, clusterSAPath(projectID, clusterID, namespace, name)+"/permissions", &out)
+}
+
+func clusterBindingsPath(projectID, clusterID, role string) string {
+	return clusterPath(projectID, clusterID) + "/clusterroles/" + esc(role) + "/clusterbindings"
+}
+
+// BindClusterRole adds a subject to the cluster role's KKP binding. KKP answers 400 if it is already bound, and
+// 500 "the cluster role binding not found" for a role KKP does not manage bindings for.
+func (c *Client) BindClusterRole(ctx context.Context, projectID, clusterID, role string, subject ClusterRoleUser) error {
+	return c.post(ctx, clusterBindingsPath(projectID, clusterID, role), subject, nil)
+}
+
+// UnbindClusterRole removes a subject from the cluster role's KKP binding (a DELETE with a body).
+func (c *Client) UnbindClusterRole(ctx context.Context, projectID, clusterID, role string, subject ClusterRoleUser) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: clusterBindingsPath(projectID, clusterID, role), body: subject}, nil)
+}

@@ -185,6 +185,7 @@ func (p *kkpProvider) Resources(_ context.Context) []func() resource.Resource {
 		newProjectMemberResource,
 		newClusterResource,
 		newMachineDeploymentResource,
+		newClusterServiceAccountResource,
 	}
 }
 
