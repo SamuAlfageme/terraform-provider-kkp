@@ -10,6 +10,8 @@
 //   - deletion is asynchronous (deletionTimestamp first, 404 a few polls later);
 //   - service account and member groups come back suffixed with "-<project id>";
 //   - service account tokens cannot create projects;
+//   - a cluster service account's token secret is filled in one kubeconfig poll after it is created, and only
+//     cluster-admin, edit and view have bindings to add subjects to;
 //   - KKP fills in fields it was not sent: NodePort IP ranges on clusters, system labels and cloud tags, the
 //     datacenter's availability zone and a default operating system profile on machine deployments.
 package kkpmock
@@ -73,6 +75,9 @@ type cluster struct {
 	polls     int
 	deleting  int
 	mds       map[string]*md
+	// sas are the cluster service accounts by "<namespace>/<name>"; bindings map a cluster role to its subjects.
+	sas      map[string]*clusterSA
+	bindings map[string]map[string]bool
 }
 
 type md struct {

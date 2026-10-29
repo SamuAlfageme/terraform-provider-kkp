@@ -310,6 +310,7 @@ func init() {
 	})
 
 	registerClusterRoutes()
+	registerClusterSARoutes()
 }
 
 func findDC(name string) map[string]any {

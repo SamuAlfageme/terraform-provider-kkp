@@ -274,7 +274,7 @@ func registerClusterRoutes() {
 		for k, v := range obj(in, "annotations") {
 			annotations[k] = v
 		}
-		c := &cluster{projectID: str(p.Obj, "id"), sshKeys: map[string]bool{}, mds: map[string]*md{}}
+		c := &cluster{projectID: str(p.Obj, "id"), sshKeys: map[string]bool{}, mds: map[string]*md{}, sas: map[string]*clusterSA{}, bindings: newBindings()}
 		c.Obj = map[string]any{"id": id, "name": in["name"], "type": "kubernetes", "creationTimestamp": now(),
 			"annotations": annotations, "spec": spec,
 			"status": map[string]any{"version": version, "url": fmt.Sprintf("https://%s.europe.kkp.example.com:6443", id)}}

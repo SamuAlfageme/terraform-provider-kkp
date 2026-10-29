@@ -346,3 +346,30 @@ type DistUpgrade struct {
 type Flatcar struct {
 	DisableAutoUpdate bool `json:"disableAutoUpdate"`
 }
+
+// ClusterServiceAccount is a Kubernetes service account in a user cluster; its ID is its name.
+type ClusterServiceAccount struct {
+	ObjectMeta
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// ClusterRoleUser is the subject of a cluster role binding: exactly one of a user, a group or a service account.
+type ClusterRoleUser struct {
+	UserEmail               string `json:"userEmail,omitempty"`
+	Group                   string `json:"group,omitempty"`
+	ServiceAccount          string `json:"serviceAccount,omitempty"`
+	ServiceAccountNamespace string `json:"serviceAccountNamespace,omitempty"`
+}
+
+// Permission scopes.
+const (
+	PermissionCluster   = "Cluster"
+	PermissionNamespace = "Namespace"
+)
+
+// Permission is one KKP binding of a cluster service account.
+type Permission struct {
+	Scope       string `json:"scope"`
+	RoleRefName string `json:"roleRefName"`
+	Namespace   string `json:"namespace"`
+}
