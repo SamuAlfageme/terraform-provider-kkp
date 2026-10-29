@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-29
+
+### Fixed
+
+- `kkp_cluster`: the `app.kubernetes.io/managed-by` label that project portals add no longer fails the apply with "Provider produced inconsistent result after apply"; it is ignored like the labels KKP manages.
+- `kkp_cluster`: `node_ports_allowed_ip_ranges` takes the value KKP picks when unset (`0.0.0.0/0`) instead of failing the apply.
+- `kkp_machine_deployment`: the node labels (`system/cluster`, `system/project`) and cloud tags KKP adds are ignored, so setting `node_labels` or `tags` no longer fails the apply and the next plan no longer tries to remove them.
+- `kkp_machine_deployment`: `operating_system_profile` and the OpenStack `availability_zone` take the values KKP picks when unset (e.g. `osp-ubuntu`, the datacenter's zone) instead of showing a diff on the next plan. Changing `operating_system` without a profile picks the default for the new operating system.
+- `kkp_machine_deployment`: Google Cloud and DigitalOcean tags keep their configured order; KKP returns them sorted.
+
 ## [0.1.0] - 2026-10-22
 
 ### Added
