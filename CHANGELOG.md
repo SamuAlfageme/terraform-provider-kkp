@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `kkp_machine_deployment`: names may contain dots (`webservice.production.example`), as in the KKP dashboard; they were rejected as invalid DNS labels.
+
 ### Added
 
 - Resource `kkp_cluster_service_account`: a Kubernetes service account in a user cluster with cluster role bindings (e.g. `cluster-admin`) and a kubeconfig that uses its token, created through the KKP API. It works on installations that disable admin kubeconfigs.

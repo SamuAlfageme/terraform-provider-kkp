@@ -170,6 +170,43 @@ resource "kkp_cluster" "c" {
 	})
 }
 
+func TestAccMachineDeploymentNames(t *testing.T) {
+	s := newMock(t)
+	cfg := providerConfig(s, s.ServiceAccountToken(s.AddProject("platform")), "")
+	md := func(name string) string {
+		return cfg + fmt.Sprintf(`
+resource "kkp_cluster" "c" {
+  name              = "edge"
+  datacenter        = "os-zurich"
+  version           = "1.32.5"
+  credential_preset = "shared-openstack"
+  openstack         = {}
+}
+
+resource "kkp_machine_deployment" "m" {
+  cluster_id       = kkp_cluster.c.id
+  name             = %q
+  replicas         = 1
+  operating_system = "ubuntu"
+  openstack        = { flavor = "m1.large", image = "Ubuntu 24.04" }
+}
+`, name)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: md("Workers"), PlanOnly: true, ExpectError: regexp.MustCompile(`must be dot-separated parts`)},
+			{Config: md("a..b"), PlanOnly: true, ExpectError: regexp.MustCompile(`must be dot-separated parts`)},
+			{Config: md("workers."), PlanOnly: true, ExpectError: regexp.MustCompile(`must be dot-separated parts`)},
+			{
+				// KKP accepts dotted names (machine deployments are Kubernetes objects)
+				Config: md("workers.staging.example"),
+				Check:  resource.TestCheckResourceAttr("kkp_machine_deployment.m", "id", "workers.staging.example"),
+			},
+		},
+	})
+}
+
 func TestAccClusterPresetAndMachineDeployment(t *testing.T) {
 	s := newMock(t)
 	s.HealthPolls = 5

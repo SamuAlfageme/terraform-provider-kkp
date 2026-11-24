@@ -60,7 +60,7 @@ resource "kkp_machine_deployment" "hetzner" {
 ### Required
 
 - `cluster_id` (String) Cluster ID (`kkp_cluster.id`).
-- `name` (String) Name, a DNS label.
+- `name` (String) Name: lowercase letters, digits, hyphens and dots, e.g. `workers` or `webservice.production.example`.
 - `operating_system` (String) `ubuntu`, `flatcar`, `rhel`, `rockylinux` or `amzn2` (Amazon Linux 2, AWS only).
 - `replicas` (Number) Number of nodes.
 

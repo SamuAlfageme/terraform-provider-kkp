@@ -32,6 +32,10 @@ var systemNodeLabels = []string{"system/cluster", "system/project"}
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
+// Machine deployments are Kubernetes objects, so their names are DNS subdomains: dot-separated
+// labels such as `webservice.production.example`, which the KKP dashboard accepts.
+var dnsSubdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
 func newMachineDeploymentResource() resource.Resource { return &machineDeploymentResource{} }
 
 type machineDeploymentResource struct{ base }
@@ -90,10 +94,10 @@ func (r *machineDeploymentResource) Schema(ctx context.Context, _ resource.Schem
 			"id":         idAttribute("Machine deployment ID (KKP uses the name)."),
 			"project_id": projectIDAttribute(),
 			"cluster_id": replaceString(true, "Cluster ID (`kkp_cluster.id`)."),
-			"name": schema.StringAttribute{Required: true, MarkdownDescription: "Name, a DNS label.",
+			"name": schema.StringAttribute{Required: true, MarkdownDescription: "Name: lowercase letters, digits, hyphens and dots, e.g. `workers` or `webservice.production.example`.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 				Validators: []validator.String{stringvalidator.LengthBetween(1, 63),
-					stringvalidator.RegexMatches(dnsLabel, "must be lowercase letters, digits and hyphens, starting and ending with a letter or digit")}},
+					stringvalidator.RegexMatches(dnsSubdomain, "must be dot-separated parts of lowercase letters, digits and hyphens, each starting and ending with a letter or digit")}},
 			"replicas":     schema.Int64Attribute{Required: true, MarkdownDescription: "Number of nodes.", Validators: []validator.Int64{int64validator.Between(0, 1000)}},
 			"min_replicas": schema.Int64Attribute{Optional: true, MarkdownDescription: "Lower bound for the cluster autoscaler. Set together with `max_replicas`.", Validators: []validator.Int64{int64validator.AtLeast(0)}},
 			"max_replicas": schema.Int64Attribute{Optional: true, MarkdownDescription: "Upper bound for the cluster autoscaler.", Validators: []validator.Int64{int64validator.AtLeast(1)}},

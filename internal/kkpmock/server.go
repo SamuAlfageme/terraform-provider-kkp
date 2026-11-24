@@ -396,7 +396,7 @@ func obj(m map[string]any, path ...string) map[string]any {
 	return mm
 }
 
-var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+var dnsSubdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 func versionLess(a, b string) bool {
 	var a1, a2, a3, b1, b2, b3 int

@@ -495,7 +495,7 @@ users:
 			return 0, nil, fail(http.StatusServiceUnavailable, "Cluster components are not ready yet")
 		}
 		name := str(b, "name")
-		if !dnsLabel.MatchString(name) {
+		if !dnsSubdomain.MatchString(name) {
 			return 0, nil, fail(http.StatusBadRequest, "node deployment validation failed: invalid name %q", name)
 		}
 		if _, ok := c.mds[name]; ok {
